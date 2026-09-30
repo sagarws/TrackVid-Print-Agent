@@ -1,11 +1,14 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { app } from 'electron'
-import { AGENT_HOST, AGENT_PORT, API_PATHS, APP_NAME, MAX_REQUEST_BYTES } from '@shared/constants/agent'
+import { AGENT_HOST, AGENT_PORT, API_PATHS, APP_NAME, MAX_REQUEST_BYTES, PRINTER_POLL_MS } from '@shared/constants/agent'
+import type { AgentPrinter, AgentState, PrintJob } from '@shared/types/agent'
 import { isOriginAllowed } from '@shared/utils/origin'
-import { submitJob } from './jobs'
+import { parsePrintRequest, RequestError } from '@shared/utils/printRequest'
+import { cancelJob, getJob, listJobs, submitJob } from './jobs'
 import { logger } from './logger'
-import { findPrinter, refreshPrinters } from './printers'
-import { allowedOrigins, setServerStatus } from './state'
+import { blocksPrinting } from './print/status'
+import { findPrinter, freshPrinters, refreshPrinters } from './printers'
+import { allowedOrigins, getPrinters, setServerStatus, snapshot, subscribe } from './state'
 
 /**
  * The local HTTP API the web app calls. Listens on 127.0.0.1 only.
@@ -99,42 +102,157 @@ const readJson = (req: IncomingMessage): Promise<unknown> =>
     req.on('error', reject)
   })
 
-interface PrintRequest {
-  printer: string
-  pdfBase64: string
-  jobName: string
-}
+/** What the web app sees of a printer. The OS queue's own entries stay private. */
+const publicPrinter = (printer: AgentPrinter) => ({
+  name: printer.name,
+  displayName: printer.displayName,
+  isDefault: printer.isDefault,
+  connection: printer.connection,
+  ...(printer.driver ? { driver: printer.driver } : {}),
+  ...(printer.location ? { location: printer.location } : {}),
+  status: printer.status,
+  supplies: printer.supplies,
+  queuedJobs: printer.queue.length
+})
 
-const parsePrintRequest = (body: unknown): PrintRequest => {
-  if (!body || typeof body !== 'object') throw new HttpError(400, 'Missing print job.')
-  const { printer, pdfBase64, jobName } = body as Record<string, unknown>
-  if (typeof printer !== 'string' || !printer.trim()) throw new HttpError(400, 'Name the printer to use.')
-  if (typeof pdfBase64 !== 'string' || !pdfBase64) throw new HttpError(400, 'The job has no PDF.')
-  return {
-    printer,
-    pdfBase64,
-    jobName: typeof jobName === 'string' && jobName.trim() ? jobName.trim().slice(0, 120) : 'TrackVid print'
-  }
+/** A job, for the website that sent it. */
+const publicJob = (job: PrintJob): Omit<PrintJob, 'canReprint' | 'source'> => {
+  const copy: Partial<PrintJob> = { ...job }
+  delete copy.canReprint
+  delete copy.source
+  return copy as Omit<PrintJob, 'canReprint' | 'source'>
 }
 
 const handlePrint = async (req: IncomingMessage, res: ServerResponse, origin: string): Promise<void> => {
-  const job = parsePrintRequest(await readJson(req))
-
-  if (!(await findPrinter(job.printer))) {
-    throw new HttpError(404, `Printer "${job.printer}" is not installed on this computer.`)
+  let job: ReturnType<typeof parsePrintRequest>
+  try {
+    job = parsePrintRequest(await readJson(req))
+  } catch (error) {
+    if (error instanceof RequestError) throw new HttpError(400, error.message)
+    throw error
   }
 
-  const bytes = Buffer.from(job.pdfBase64, 'base64')
-  if (bytes.subarray(0, 5).toString('latin1') !== '%PDF-') {
-    throw new HttpError(400, 'The job is not a PDF.')
-  }
+  const printer = await findPrinter(job.printer)
+  if (!printer) throw new HttpError(404, `Printer "${job.printer}" is not installed on this computer.`)
 
-  const result = await submitJob({ bytes, printer: job.printer, name: job.jobName, source: origin })
+  const result = await submitJob({
+    bytes: job.bytes,
+    printer: job.printer,
+    name: job.jobName,
+    source: origin,
+    format: job.format,
+    options: job.options,
+    allowOffline: job.allowOffline
+  })
+  const current = getPrinters().find(entry => entry.name === job.printer) ?? printer
   if (result.status === 'failed') {
-    sendJson(res, 502, { ok: false, jobId: result.id, error: result.error ?? 'The printer did not accept the job.' })
+    sendJson(res, blocksPrinting(current.status) ? 409 : 502, {
+      ok: false,
+      jobId: result.id,
+      error: result.error ?? 'The printer did not accept the job.',
+      printer: publicPrinter(current)
+    })
     return
   }
-  sendJson(res, 200, { ok: true, jobId: result.id })
+  sendJson(res, 200, { ok: true, jobId: result.id, job: publicJob(result), printer: publicPrinter(current) })
+}
+
+/**
+ * GET /v1/events — Server-Sent Events, the push version of polling:
+ *   event: printers   data: [printer, …]   whenever any printer's status changes
+ *   event: job        data: job            whenever one of this website's jobs changes
+ * EventSource reconnects by itself; the first message is always the full list.
+ */
+const handleEvents = (req: IncomingMessage, res: ServerResponse, origin: string): void => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-store',
+    Connection: 'keep-alive'
+  })
+  const send = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+
+  let printersJson = ''
+  const jobsJson = new Map<string, string>()
+  const push = (state: AgentState, initial = false) => {
+    const printers = JSON.stringify(state.printers.map(publicPrinter))
+    if (printers !== printersJson) {
+      printersJson = printers
+      res.write(`event: printers\ndata: ${printers}\n\n`)
+    }
+    for (const job of state.jobs) {
+      if (job.source !== origin) continue
+      const json = JSON.stringify(publicJob(job))
+      if (jobsJson.get(job.id) === json) continue
+      jobsJson.set(job.id, json)
+      // Jobs from before the page connected are history, not news.
+      if (!initial) send('job', publicJob(job))
+    }
+  }
+  push(snapshot(), true)
+  const unsubscribe = subscribe(state => push(state))
+  // A comment every 25 s keeps proxies and sleeping laptops from dropping the stream.
+  const heartbeat = setInterval(() => res.write(': ping\n\n'), 25_000)
+  req.on('close', () => {
+    unsubscribe()
+    clearInterval(heartbeat)
+  })
+}
+
+const PRINTER_PATH = /^\/v1\/printers\/([^/]+)$/
+const JOB_PATH = /^\/v1\/jobs\/([^/]+)(\/cancel)?$/
+
+const route = async (req: IncomingMessage, res: ServerResponse, origin: string, path: string, query: URLSearchParams) => {
+  if (path === API_PATHS.printers && req.method === 'GET') {
+    const printers = query.get('refresh') === '1' ? await refreshPrinters() : await freshPrinters(PRINTER_POLL_MS)
+    sendJson(res, 200, { ok: true, printers: printers.map(publicPrinter) })
+    return
+  }
+
+  const printerMatch = PRINTER_PATH.exec(path)
+  if (printerMatch?.[1] && req.method === 'GET') {
+    const name = decodeURIComponent(printerMatch[1])
+    const printers = query.get('refresh') === '1' ? await refreshPrinters() : await freshPrinters(PRINTER_POLL_MS)
+    const printer = printers.find(entry => entry.name === name)
+    if (!printer) throw new HttpError(404, `Printer "${name}" is not installed on this computer.`)
+    sendJson(res, 200, { ok: true, printer: publicPrinter(printer) })
+    return
+  }
+
+  if (path === API_PATHS.print && req.method === 'POST') {
+    await handlePrint(req, res, origin)
+    return
+  }
+
+  if (path === API_PATHS.jobs && req.method === 'GET') {
+    sendJson(res, 200, { ok: true, jobs: listJobs().filter(job => job.source === origin).map(publicJob) })
+    return
+  }
+
+  const jobMatch = JOB_PATH.exec(path)
+  if (jobMatch?.[1]) {
+    const job = getJob(decodeURIComponent(jobMatch[1]))
+    // Another website's job is "not found", not "forbidden": no hint it exists.
+    if (!job || job.source !== origin) throw new HttpError(404, 'No such job.')
+    if (!jobMatch[2] && req.method === 'GET') {
+      sendJson(res, 200, { ok: true, job: publicJob(job) })
+      return
+    }
+    if (jobMatch[2] && req.method === 'POST') {
+      try {
+        sendJson(res, 200, { ok: true, job: publicJob(await cancelJob(job.id)) })
+      } catch (error) {
+        throw new HttpError(409, error instanceof Error ? error.message : 'Could not cancel the job.')
+      }
+      return
+    }
+  }
+
+  if (path === API_PATHS.events && req.method === 'GET') {
+    handleEvents(req, res, origin)
+    return
+  }
+
+  sendJson(res, 404, { ok: false, error: 'Not found.' })
 }
 
 const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
@@ -144,7 +262,8 @@ const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> 
   }
 
   const origin = req.headers.origin
-  const path = (req.url ?? '/').split('?')[0]
+  const url = new URL(req.url ?? '/', `http://${AGENT_HOST}`)
+  const path = url.pathname
   const allowed = isOriginAllowed(origin, allowedOrigins())
 
   // The one endpoint that answers a browser whose origin is not on the list.
@@ -154,7 +273,7 @@ const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> 
       res.writeHead(204).end()
       return
     }
-    sendJson(res, 200, { ok: true, app: APP_NAME, version: app.getVersion(), allowed })
+    sendJson(res, 200, { ok: true, app: APP_NAME, version: app.getVersion(), allowed, apiVersion: 2 })
     return
   }
 
@@ -169,18 +288,7 @@ const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> 
     return
   }
 
-  if (path === API_PATHS.printers && req.method === 'GET') {
-    const printers = await refreshPrinters()
-    sendJson(res, 200, { ok: true, printers })
-    return
-  }
-
-  if (path === API_PATHS.print && req.method === 'POST') {
-    await handlePrint(req, res, origin)
-    return
-  }
-
-  sendJson(res, 404, { ok: false, error: 'Not found.' })
+  await route(req, res, origin, path, url.searchParams)
 }
 
 let server: Server | null = null

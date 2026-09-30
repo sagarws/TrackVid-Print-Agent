@@ -10,8 +10,12 @@ const iconPath = (): string =>
 
 const statusLine = (state: AgentState): string => {
   switch (state.server.state) {
-    case 'listening':
+    case 'listening': {
+      const problems = state.printers.filter(printer => ['offline', 'paused', 'error'].includes(printer.status.state))
+      if (problems.length === 1 && problems[0]) return `${problems[0].displayName}: ${problems[0].status.message}`
+      if (problems.length > 1) return `Ready — ${problems.length} printers need attention`
       return `Ready — ${state.printers.length} printer(s)`
+    }
     case 'failed':
       return 'Not running — open for details'
     default:

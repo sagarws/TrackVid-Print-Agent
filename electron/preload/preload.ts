@@ -17,7 +17,19 @@ const api = {
   testPrint: (printer: string): Promise<Result> => ipcRenderer.invoke(IPC.testPrint, printer),
   setAllowedOrigins: (origins: string[]): Promise<Result> => ipcRenderer.invoke(IPC.setAllowedOrigins, origins),
   setOpenAtLogin: (enabled: boolean): Promise<Result> => ipcRenderer.invoke(IPC.setOpenAtLogin, enabled),
-  setThemeMode: (mode: ThemeMode): Promise<Result> => ipcRenderer.invoke(IPC.setThemeMode, mode)
+  setThemeMode: (mode: ThemeMode): Promise<Result> => ipcRenderer.invoke(IPC.setThemeMode, mode),
+  setBlockOfflinePrinters: (enabled: boolean): Promise<Result> => ipcRenderer.invoke(IPC.setBlockOfflinePrinters, enabled),
+  setNotifications: (enabled: boolean): Promise<Result> => ipcRenderer.invoke(IPC.setNotifications, enabled),
+  resumePrinter: (printer: string): Promise<Result> => ipcRenderer.invoke(IPC.resumePrinter, printer),
+  clearQueue: (printer: string): Promise<Result> => ipcRenderer.invoke(IPC.clearQueue, printer),
+  cancelQueueJob: (printer: string, osJobId: string): Promise<Result> =>
+    ipcRenderer.invoke(IPC.cancelQueueJob, printer, osJobId),
+  releaseQueueJob: (printer: string, osJobId: string): Promise<Result> =>
+    ipcRenderer.invoke(IPC.releaseQueueJob, printer, osJobId),
+  cancelJob: (id: string): Promise<Result> => ipcRenderer.invoke(IPC.cancelJob, id),
+  releaseJob: (id: string): Promise<Result> => ipcRenderer.invoke(IPC.releaseJob, id),
+  reprintJob: (id: string): Promise<Result> => ipcRenderer.invoke(IPC.reprintJob, id),
+  openPrinterSettings: (): Promise<Result> => ipcRenderer.invoke(IPC.openPrinterSettings)
 }
 
 export type PrintAgentApi = typeof api

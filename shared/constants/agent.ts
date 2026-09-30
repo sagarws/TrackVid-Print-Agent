@@ -15,7 +15,9 @@ export const AGENT_PORT = 17865
 export const API_PATHS = {
   status: '/v1/status',
   printers: '/v1/printers',
-  print: '/v1/print'
+  print: '/v1/print',
+  jobs: '/v1/jobs',
+  events: '/v1/events'
 } as const
 
 /**
@@ -37,5 +39,18 @@ export const DEV_ALLOWED_ORIGINS: readonly string[] = ['http://localhost:3000', 
 
 /** How many finished jobs the window keeps on screen. */
 export const JOB_HISTORY_LIMIT = 100
+
+/**
+ * How often printers are re-checked (OS queue + a probe of each device). A
+ * probe is one small request per printer, so every 10 s costs nothing, and a
+ * printer switched off shows as offline within one poll.
+ */
+export const PRINTER_POLL_MS = 10_000
+
+/** How often a queued job's state is read back from the OS until it finishes. */
+export const JOB_POLL_MS = 1_500
+
+/** Jobs whose bytes are kept for Reprint: the most recent, up to this much. */
+export const REPRINT_CACHE = { maxJobs: 30, maxBytes: 150 * 1024 * 1024 } as const
 
 export const WINDOW_DEFAULTS = { width: 1240, height: 800, minWidth: 1000, minHeight: 640 } as const

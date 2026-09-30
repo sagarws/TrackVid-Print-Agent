@@ -70,7 +70,7 @@ const HomePage = ({ state, query }: { state: AgentState; query: string }) => {
         </Paper>
       </Stack>
 
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' }, gap: 4 }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'repeat(2, minmax(0, 1fr))' }, gap: 4 }}>
         <StatusCard state={state} />
         <PrintersCard printers={state.printers} error={state.printersError} query={query} />
         <WebsitesCard allowed={state.allowedOrigins} devOrigins={state.devOrigins} query={query} />

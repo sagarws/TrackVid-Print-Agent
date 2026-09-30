@@ -35,6 +35,8 @@ export const snapshot = (): AgentState => {
     devOrigins: app.isPackaged ? [] : [...DEV_ALLOWED_ORIGINS],
     openAtLogin: getSettings().openAtLogin,
     themeMode: getSettings().themeMode,
+    blockOfflinePrinters: getSettings().blockOfflinePrinters,
+    notifications: getSettings().notifications,
     logPath: logger.path(),
     jobs
   }
@@ -63,6 +65,8 @@ export const setPrinters = (next: AgentPrinter[], error?: string): void => {
 }
 
 export const getPrinters = (): AgentPrinter[] => printers
+
+export const getJobs = (): PrintJob[] => jobs
 
 export const setJobs = (next: PrintJob[]): void => {
   jobs = next

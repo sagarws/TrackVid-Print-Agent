@@ -15,6 +15,10 @@ export interface AgentSettings {
   allowedOrigins: string[]
   openAtLogin: boolean
   themeMode: ThemeMode
+  /** Refuse a job for a printer that is offline or paused, instead of queueing it. */
+  blockOfflinePrinters: boolean
+  /** Desktop notifications when a printer needs attention or a job fails. */
+  notifications: boolean
 }
 
 const THEME_MODES: readonly ThemeMode[] = ['light', 'dark', 'system']
@@ -24,7 +28,9 @@ const defaults = (): AgentSettings => ({
   // Only a packaged install registers itself; a dev run must not leave a login
   // item pointing at node_modules/electron behind.
   openAtLogin: app.isPackaged,
-  themeMode: 'system'
+  themeMode: 'system',
+  blockOfflinePrinters: true,
+  notifications: true
 })
 
 let cached: AgentSettings | null = null
@@ -46,7 +52,10 @@ const sanitise = (raw: unknown): AgentSettings => {
   return {
     allowedOrigins: Array.from(new Set(origins)),
     openAtLogin: typeof value.openAtLogin === 'boolean' ? value.openAtLogin : base.openAtLogin,
-    themeMode: THEME_MODES.includes(value.themeMode as ThemeMode) ? (value.themeMode as ThemeMode) : base.themeMode
+    themeMode: THEME_MODES.includes(value.themeMode as ThemeMode) ? (value.themeMode as ThemeMode) : base.themeMode,
+    blockOfflinePrinters:
+      typeof value.blockOfflinePrinters === 'boolean' ? value.blockOfflinePrinters : base.blockOfflinePrinters,
+    notifications: typeof value.notifications === 'boolean' ? value.notifications : base.notifications
   }
 }
 

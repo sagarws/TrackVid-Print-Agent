@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Alert, Box, ButtonBase, Stack, Switch, Typography } from '@mui/material'
-import type { AgentState, ThemeMode } from '@shared/types/agent'
+import type { AgentState, Result, ThemeMode } from '@shared/types/agent'
 import { useSettings } from '@core/hooks/useSettings'
 import SectionCard from '../components/SectionCard'
 import { platformLabel } from '../utils/format'
@@ -31,11 +31,11 @@ const SettingsPage = ({ state }: { state: AgentState }) => {
   const [error, setError] = useState<string | null>(null)
   const devRun = state.devOrigins.length > 0
 
-  const toggleLogin = async (enabled: boolean) => {
+  const toggle = async (action: () => Promise<Result>) => {
     setSaving(true)
     setError(null)
     try {
-      const result = await window.printAgent.setOpenAtLogin(enabled)
+      const result = await action()
       if (!result.ok) setError(result.error)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -51,7 +51,7 @@ const SettingsPage = ({ state }: { state: AgentState }) => {
           Settings
         </Typography>
         <Typography color='text.secondary' sx={{ fontSize: 14, mt: 0.5 }}>
-          How the agent looks and starts on this computer.
+          How the agent looks, starts and prints on this computer.
         </Typography>
       </Box>
 
@@ -103,16 +103,42 @@ const SettingsPage = ({ state }: { state: AgentState }) => {
           <Switch
             checked={state.openAtLogin}
             disabled={saving || devRun}
-            onChange={event => void toggleLogin(event.target.checked)}
+            onChange={event => void toggle(() => window.printAgent.setOpenAtLogin(event.target.checked))}
             slotProps={{ input: { 'aria-label': 'Start when I log in' } }}
           />
         </Row>
-        {error && (
-          <Alert severity='error' sx={{ mt: 2 }}>
-            {error}
-          </Alert>
-        )}
       </SectionCard>
+
+      <SectionCard
+        icon='tabler-printer'
+        tone='primary'
+        title='Printing'
+        subtitle='What the agent does when a printer is not ready.'
+      >
+        <Row
+          title='Refuse jobs for offline or paused printers'
+          hint='Recommended. TrackVid shows the problem straight away, instead of the job waiting in a queue and printing hours later.'
+        >
+          <Switch
+            checked={state.blockOfflinePrinters}
+            disabled={saving}
+            onChange={event => void toggle(() => window.printAgent.setBlockOfflinePrinters(event.target.checked))}
+            slotProps={{ input: { 'aria-label': 'Refuse jobs for offline or paused printers' } }}
+          />
+        </Row>
+        <Row
+          title='Notify me about printer problems'
+          hint='A desktop notification when a printer in use goes offline, runs out of paper, or a job fails.'
+        >
+          <Switch
+            checked={state.notifications}
+            disabled={saving}
+            onChange={event => void toggle(() => window.printAgent.setNotifications(event.target.checked))}
+            slotProps={{ input: { 'aria-label': 'Notify me about printer problems' } }}
+          />
+        </Row>
+      </SectionCard>
+      {error && <Alert severity='error'>{error}</Alert>}
 
       <SectionCard icon='tabler-info-circle' tone='info' title='About'>
         <Stack spacing={1.5}>

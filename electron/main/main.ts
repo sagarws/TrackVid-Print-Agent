@@ -4,7 +4,7 @@ import { IPC } from '@shared/constants/channels'
 import { registerIpc, setOpenAtLogin } from './ipc'
 import { applyOpenAtLogin, launchedHidden } from './loginItem'
 import { logger } from './logger'
-import { refreshPrinters, setPrinterSource } from './printers'
+import { setPrinterSource, startPrinterMonitor, stopPrinterMonitor } from './printers'
 import { startServer, stopServer } from './server'
 import { getSettings } from './settings'
 import { snapshot, subscribe } from './state'
@@ -52,7 +52,7 @@ if (!app.requestSingleInstanceLock()) {
     app.once('will-quit', unsubscribe)
 
     startServer()
-    void refreshPrinters()
+    startPrinterMonitor()
 
     app.on('activate', () => showWindow())
   })
@@ -64,6 +64,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('before-quit', () => {
     markQuitting()
     logger.info('Shutting down')
+    stopPrinterMonitor()
     void stopServer()
     destroyTray()
     BrowserWindow.getAllWindows().forEach(window => window.destroy())
