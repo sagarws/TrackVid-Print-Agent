@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Alert, Box, Button, MenuItem, Stack, TextField, Typography } from '@mui/material'
 import type { ScanPackSettingsState } from '@shared/types/scanpack'
-import { MAX_WEEKS_KEPT, MIN_WEEKS_KEPT } from '@shared/utils/weekFolder'
+import { MAX_EXTRACT_WORKERS, MAX_WEEKS_KEPT, MIN_EXTRACT_WORKERS, MIN_WEEKS_KEPT } from '@shared/utils/weekFolder'
 import SectionCard from './SectionCard'
 
 const WEEK_OPTIONS = Array.from({ length: MAX_WEEKS_KEPT - MIN_WEEKS_KEPT + 1 }, (_, i) => i + MIN_WEEKS_KEPT)
+const WORKER_OPTIONS = Array.from({ length: MAX_EXTRACT_WORKERS - MIN_EXTRACT_WORKERS + 1 }, (_, i) => i + MIN_EXTRACT_WORKERS)
 
 const describe = (weeks: number) =>
   weeks === 1 ? 'This week only' : weeks === 2 ? 'This week + last week' : `This week + the ${weeks - 1} weeks before it`
@@ -72,7 +73,7 @@ const ScanPackStorageCard = ({ scanPack }: { scanPack: ScanPackSettingsState }) 
             Save files in
           </Typography>
           <Typography variant='caption' color='text.secondary' component='p'>
-            Each packlog's PDFs go in <code>scan-and-pack/&lt;week&gt;/</code> inside this folder
+            Each packlog's PDFs go in <code>scan-and-pack/&lt;date&gt;/&lt;packlog ID&gt;/</code> inside this folder
             {scanPack.isDefaultDir ? ' (your Downloads folder, the default).' : '.'}
           </Typography>
           <Box
@@ -149,6 +150,38 @@ const ScanPackStorageCard = ({ scanPack }: { scanPack: ScanPackSettingsState }) 
             {WEEK_OPTIONS.map(weeks => (
               <MenuItem key={weeks} value={weeks}>
                 {weeks} {weeks === 1 ? 'week' : 'weeks'} — {describe(weeks)}
+              </MenuItem>
+            ))}
+          </TextField>
+        </Stack>
+
+        <Stack direction='row' alignItems='center' spacing={3}>
+          <Box sx={{ flex: 1 }}>
+            <Typography variant='body2' sx={{ fontWeight: 600 }}>
+              Parallel PDF extractors
+            </Typography>
+            <Typography variant='caption' color='text.secondary'>
+              After an upload, each order's PDF is saved in the background by this many workers at once, records dealt in
+              turn (with 3: worker 1 takes records 1, 4, 7 …). The upload closes once the first {scanPack.workers} are
+              saved. Applies to the next upload.
+            </Typography>
+          </Box>
+          <TextField
+            select
+            size='small'
+            value={scanPack.workers}
+            disabled={busy}
+            onChange={event =>
+              void run(
+                () => window.printAgent.scanPack.setWorkers(Number(event.target.value)),
+                workers => `${workers} parallel extractor${workers === 1 ? '' : 's'} from the next upload.`
+              )
+            }
+            sx={{ minWidth: 260 }}
+          >
+            {WORKER_OPTIONS.map(workers => (
+              <MenuItem key={workers} value={workers}>
+                {workers} {workers === 1 ? 'worker' : 'workers'}
               </MenuItem>
             ))}
           </TextField>

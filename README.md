@@ -94,13 +94,25 @@ marked packed).
 - **No backend, no Google Drive.** `electron/main/scanpack/` stands in for TrackVid-BE's
   `/packlog` API over IPC: records in `<userData>/scanpack/<id>.json`, and the uploaded
   label/invoice PDF saved **once** per packlog as
-  `<chosen folder>/scan-and-pack/<YYYY-MM-DD_to_YYYY-MM-DD>/<packlogId>-source-<n>.pdf`
-  (same week folders as the backend: Monday–Sunday, IST).
+  `<chosen folder>/scan-and-pack/<YYYY-MM-DD>/<packlogId>/<packlogId>-source-<n>.pdf` — a folder
+  per IST day, then per packlog. Retention is still by week (Monday–Sunday, IST, as on the
+  backend): a day folder expires with its week.
 - **No PDF is cut per order.** Each order stores its page numbers in the source. A scan
   prints the source with a page range (`lp -P 47-48` / SumatraPDF pages); the preview and
   Download cut that one order on demand in the main process. Cutting per order at upload
   cost ~1.7 s an order on label PDFs whose pages share their resources. Packlogs saved
   before this (one PDF per order) still preview and print from those files.
+- **Per-order PDFs, in the background.** After the upload saves the source and page map,
+  a job cuts one PDF per order part (`<packlogId>-<label|invoice>-<awb>.pdf`, in the same
+  packlog folder) on **N utility processes** (Settings → Parallel PDF extractors, default 3), records
+  dealt round-robin — with 3 workers, worker 1 takes records 1, 4, 7 …. The upload closes as
+  soon as the first N are saved; until a record's PDF exists it prints from the source with a
+  page range. Code: `electron/main/scanpack/extractor.ts` (jobs, queue, history) and
+  `extractWorker.ts` (the worker, a second main-process entry).
+- **Background process** screen: every job, live and kept afterwards (one JSON per job in
+  `<userData>/scanpack-jobs`), expandable to one line per worker with each sheet record
+  grey (waiting), green (saved) or red (no PDF / failed); deletable. A job cut short by a
+  quit resumes at the next start.
 - **Timing:** every upload step prints `[scanpack:time] For record n … ms taken in …` in the
   terminal running the app and in `agent.log`, with per-stage totals at the end.
   Packlogs made here do not appear in the web admin, and the other way round.

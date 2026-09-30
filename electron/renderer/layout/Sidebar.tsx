@@ -3,11 +3,12 @@ import type { AgentState } from '@shared/types/agent'
 import { SIDEBAR } from '../theme/brand'
 import logo from '../assets/logo.svg'
 
-export type Page = 'home' | 'scanpack' | 'settings'
+export type Page = 'home' | 'scanpack' | 'background' | 'settings'
 
 const NAV: { id: Page; label: string; icon: string }[] = [
   { id: 'home', label: 'Home', icon: 'tabler-smart-home' },
   { id: 'scanpack', label: 'Scan and Pack', icon: 'tabler-barcode' },
+  { id: 'background', label: 'Background process', icon: 'tabler-stack-2' },
   { id: 'settings', label: 'Settings', icon: 'tabler-settings' }
 ]
 

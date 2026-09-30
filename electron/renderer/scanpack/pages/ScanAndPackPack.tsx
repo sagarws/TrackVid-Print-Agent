@@ -42,6 +42,7 @@ import { PacklogService, adaptPacklogDetail } from "../api/packlog-service";
 import { downloadPdf, type PrintPart } from "../utils/scan-and-pack/pdf-output";
 import {
   dispatchPrint,
+  readOutputMode,
   fetchOrderBytes,
   findPrintTargetMismatch,
   readStoredTarget,
@@ -400,7 +401,10 @@ const ScanAndPackPack = () => {
         if (!aliveRef.current) return;
         const wasPacked = order.packStatus === "packed";
         if (outcome.viaAgent) {
-          toast.success(wasPacked ? `Reprinted ${order.awbRaw || order.awb}.` : outcome.message);
+          // Auto Download saves again rather than reprinting; say what happened.
+          toast.success(
+            wasPacked && readOutputMode() !== "download" ? `Reprinted ${order.awbRaw || order.awb}.` : outcome.message
+          );
           await markOrderPacked(order);
         } else {
           warnUnconfirmedPrint(outcome.message);
@@ -555,7 +559,9 @@ const ScanAndPackPack = () => {
       try {
         const outcome = await dispatchPrint(batch.id, order, part);
         if (aliveRef.current) {
-          if (outcome.viaAgent) toast.success(`Reprinted ${order.awbRaw || order.awb}.`);
+          if (outcome.viaAgent) {
+            toast.success(readOutputMode() === "download" ? outcome.message : `Reprinted ${order.awbRaw || order.awb}.`);
+          }
           else toast(outcome.message, { duration: 6000 });
         }
       } catch (err) {

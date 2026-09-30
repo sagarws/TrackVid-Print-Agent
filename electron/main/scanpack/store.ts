@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { app } from 'electron'
@@ -12,7 +12,8 @@ import type {
   StoredPacklogOrder
 } from '@shared/types/scanpack'
 import { pageList } from '@shared/utils/pageList'
-import { partFileName, ROOT_FOLDER_NAME, weekRangeFor } from '@shared/utils/weekFolder'
+import { prunePageResources } from '@shared/utils/pdfPrune'
+import { packlogFolderParts, partFileName, ROOT_FOLDER_NAME, weekRangeFor } from '@shared/utils/weekFolder'
 import { logger } from '../logger'
 import { printPerf, since } from './perf'
 import { getSettings } from '../settings'
@@ -113,6 +114,14 @@ const get = (id: string): Entry => {
   if (!entry) throw notFound()
   return entry
 }
+
+/**
+ * Where a packlog's PDFs go: `<folder>/scan-and-pack/<IST day created>/<packlogId>/`.
+ * Files already saved keep the absolute path stored on their order, so
+ * packlogs from the earlier week-folder layout are read where they are.
+ */
+const packlogDir = (entry: Entry): string =>
+  join(storageRoot(), ROOT_FOLDER_NAME, ...packlogFolderParts(new Date(entry.packlog.createdAt), entry.packlog.packlogId))
 
 const isMapped = (o: StoredPacklogOrder) => Boolean(o.labelFile || o.invoiceFile || o.labelRef || o.invoiceRef)
 
@@ -240,8 +249,7 @@ export const uploadPart = async (
   }
 
   const record = `For record ${order.rowIndex + 1} (${order.awb})`
-  const week = weekRangeFor(new Date(entry.packlog.createdAt))
-  const folder = join(storageRoot(), ROOT_FOLDER_NAME, week.folderName)
+  const folder = packlogDir(entry)
   let start = performance.now()
   await mkdir(folder, { recursive: true })
   const mkdirMs = since(start)
@@ -304,8 +312,7 @@ export const saveSource = async (id: string, docId: string, name: string, bytes:
   const sources = (entry.packlog.sources ??= [])
   const existing = sources.find(s => s.docId === docId)
   const n = existing ? sources.indexOf(existing) + 1 : sources.length + 1
-  const week = weekRangeFor(new Date(entry.packlog.createdAt))
-  const folder = join(storageRoot(), ROOT_FOLDER_NAME, week.folderName)
+  const folder = packlogDir(entry)
   const start = performance.now()
   await mkdir(folder, { recursive: true })
   const file = join(folder, partFileName(entry.packlog.packlogId, 'source', String(n)))
@@ -413,6 +420,8 @@ const cutPages = async (file: string, pages: number[], part: PartName): Promise<
   const out = await PDFDocument.create()
   const valid = pages.filter(p => p < source.getPageCount())
   if (!valid.length) throw new ScanPackError('The mapped pages are missing from the source PDF.', 'file_missing')
+  // Copy only what these pages draw — see pdfPrune.ts.
+  for (const index of valid) prunePageResources(source.getPage(index))
   for (const page of await out.copyPages(source, valid)) out.addPage(page)
   return Buffer.from(await out.save())
 }
@@ -493,4 +502,131 @@ export const removePacklogWithFiles = (id: string): { deleted: number; failed: n
   const result = deleteFiles(entry)
   dropEntry(id)
   return result
+}
+
+// ---------------------------------------------------------------------------
+// Background extraction (see extractor.ts)
+// ---------------------------------------------------------------------------
+
+export interface ExtractTask {
+  taskId: string
+  orderId: string
+  /** 1-based sheet row. */
+  record: number
+  awb: string
+  part: PartName
+  sourceFile: string
+  pages: number[]
+  outFile: string
+}
+
+export interface PlannedRecord {
+  orderId: string
+  /** 1-based sheet row. */
+  record: number
+  awb: string
+  /** Parts still to cut (page range known, no PDF of its own yet). */
+  tasks: ExtractTask[]
+  /** Parts that already have a PDF of their own. */
+  done: PartName[]
+}
+
+/**
+ * Every sheet record of a packlog, in sheet order, with what is left to cut
+ * for it. A record with neither tasks nor done parts has no PDF at all (its
+ * AWB was not found in the upload).
+ */
+export const extractionPlan = (
+  id: string
+): { packlogId: string; orderFileName: string; platform: string; records: PlannedRecord[] } | null => {
+  const entry = load().get(id)
+  if (!entry) return null
+  const folder = packlogDir(entry)
+  const sources = new Map((entry.packlog.sources ?? []).map(s => [s.docId, s.file]))
+  const records = [...entry.orders]
+    .sort((a, b) => a.rowIndex - b.rowIndex)
+    .map(order => {
+      const planned: PlannedRecord = { orderId: order._id, record: order.rowIndex + 1, awb: order.awb, tasks: [], done: [] }
+      for (const part of ['label', 'invoice'] as const) {
+        const own = part === 'label' ? order.labelFile : order.invoiceFile
+        const ref = part === 'label' ? order.labelRef : order.invoiceRef
+        const sourceFile = ref ? sources.get(ref.docId) : undefined
+        if (own) planned.done.push(part)
+        else if (ref && sourceFile) {
+          planned.tasks.push({
+            taskId: `${order._id}:${part}`,
+            orderId: order._id,
+            record: planned.record,
+            awb: order.awb,
+            part,
+            sourceFile,
+            pages: ref.pages,
+            outFile: join(folder, partFileName(entry.packlog.packlogId, part, order.awb))
+          })
+        }
+      }
+      return planned
+    })
+  return {
+    packlogId: entry.packlog.packlogId,
+    orderFileName: entry.packlog.orderFileName,
+    platform: entry.packlog.platform,
+    records
+  }
+}
+
+/**
+ * Record a PDF a worker has written. Returns false when the packlog or order
+ * is gone (deleted mid-extraction) — the caller then removes the stray file.
+ */
+export const attachExtracted = (id: string, orderId: string, part: PartName, file: string): boolean => {
+  const entry = load().get(id)
+  const order = entry?.orders.find(o => o._id === orderId)
+  if (!entry || !order) return false
+  if (part === 'label') order.labelFile = file
+  else order.invoiceFile = file
+  markDirty(id)
+  return true
+}
+
+/** Packlogs with order parts still waiting to be cut — resumed after a restart. */
+export const packlogsNeedingExtraction = (): string[] =>
+  [...load().values()]
+    .filter(entry =>
+      entry.orders.some(o => (o.labelRef && !o.labelFile) || (o.invoiceRef && !o.invoiceFile))
+    )
+    .sort((a, b) => a.packlog.createdAt.localeCompare(b.packlog.createdAt))
+    .map(entry => entry.packlog._id)
+
+/**
+ * Drop the per-order PDFs cut from source pages, so a new job cuts them again
+ * (e.g. after the resource-trimming fix, to replace 20 MB one-page files).
+ * Only files that have a page range behind them are touched: a Bulk Update
+ * PDF with no source to recut from is kept.
+ */
+export const resetExtracted = (id: string): { removed: number; freedKb: number } => {
+  const entry = get(id)
+  let removed = 0
+  let freedBytes = 0
+  for (const order of entry.orders) {
+    for (const part of ['label', 'invoice'] as const) {
+      const ref = part === 'label' ? order.labelRef : order.invoiceRef
+      const file = part === 'label' ? order.labelFile : order.invoiceFile
+      if (!ref || !file) continue
+      try {
+        if (existsSync(file)) {
+          freedBytes += statSync(file).size
+          rmSync(file, { force: true })
+          removed++
+        }
+      } catch (error) {
+        logger.warn(`[scanpack] could not remove ${file}`, error)
+      }
+      if (part === 'label') order.labelFile = null
+      else order.invoiceFile = null
+    }
+  }
+  writeEntry(entry)
+  dirty.delete(id)
+  return { removed, freedKb: Math.round(freedBytes / 1024) }
 }

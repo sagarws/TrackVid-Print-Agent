@@ -11,6 +11,7 @@ import type { PrintPart } from "./pdf-output";
 import {
   LOCALSTORAGE_SCANPACK_INVOICE_PRINTER,
   LOCALSTORAGE_SCANPACK_LABEL_PRINTER,
+  LOCALSTORAGE_SCANPACK_OUTPUT_MODE,
   LOCALSTORAGE_SCANPACK_PRINT_TARGET,
 } from "../../config/constant";
 import type { ScanMode, ScanPackBatch, ScanPackOrder } from "../../types/scanAndPack.types";
@@ -24,6 +25,12 @@ export const readStoredTarget = (): PrintPart => {
   const raw = localStorage.getItem(LOCALSTORAGE_SCANPACK_PRINT_TARGET);
   return raw === "label" || raw === "invoice" || raw === "both" ? raw : "both";
 };
+
+/** AGENT: print on the assigned printers, or save the PDF to Downloads (Auto Download). */
+export type OutputMode = "print" | "download";
+
+export const readOutputMode = (): OutputMode =>
+  localStorage.getItem(LOCALSTORAGE_SCANPACK_OUTPUT_MODE) === "download" ? "download" : "print";
 
 export const readLabelPrinter = () =>
   localStorage.getItem(LOCALSTORAGE_SCANPACK_LABEL_PRINTER) ?? "";
@@ -141,6 +148,16 @@ export const dispatchPrint = async (
   const invoicePrinter = readInvoicePrinter();
   // Shown in the agent's job list and the OS print queue.
   const awb = order.awbRaw || order.awb || order.id;
+
+  // AGENT: Auto Download. The order's PDF (label / invoice / both, per the
+  // target) is saved to Downloads by the main process, which answers only
+  // once the file is on disk — so, like a confirmed print, it packs the order.
+  if (readOutputMode() === "download") {
+    const bytes = await fetchOrderBytes(packlogObjectId, order, part);
+    const result = await window.printAgent.scanPack.saveDownload(bytes, `${awb}-${part}.pdf`);
+    if (!result.ok) throw new Error(`Could not save the PDF: ${result.error}`);
+    return { viaAgent: true, message: `Downloaded ${awb} ${part} → ${result.value}` };
+  }
 
   // Label and invoice on separate printers: two jobs. A refusal on either
   // throws with the printer's reason, and the parcel is not packed.

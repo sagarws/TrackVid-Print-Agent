@@ -30,6 +30,7 @@ import { PackStatusChip, ReprintButton } from "../components/ScanAndPack/PackSta
 import { countMapped } from "../utils/scan-and-pack/batch";
 import {
   dispatchPrint,
+  readOutputMode,
   findPrintTargetMismatch,
   readStoredTarget,
   type PrintTargetMismatch,
@@ -46,12 +47,14 @@ const INVOICE_COUNT_FIELD = "__invoiceCount__";
 const PACK_STATUS_FIELD = "__packStatus__";
 const PACKED_AT_FIELD = "__packedAt__";
 const ACTIONS_FIELD = "__actions__";
-type StatusFilter = "all" | "mapped" | "unmapped";
+type StatusFilter = "all" | "mapped" | "unmapped" | "ready" | "packed";
 
 const STATUS_TABS: { key: StatusFilter; label: string }[] = [
   { key: "all", label: "All" },
   { key: "mapped", label: "Mapped" },
   { key: "unmapped", label: "Not Mapped" },
+  { key: "ready", label: "Ready to pack" },
+  { key: "packed", label: "Packed" },
 ];
 
 const ScanAndPackBatch = () => {
@@ -122,6 +125,9 @@ const ScanAndPackBatch = () => {
       .filter((order) => {
         if (status === "mapped" && !order.mapping) return false;
         if (status === "unmapped" && order.mapping) return false;
+        // Anything not literally "packed" is ready, as the Pack Status column shows it.
+        if (status === "ready" && order.packStatus === "packed") return false;
+        if (status === "packed" && order.packStatus !== "packed") return false;
         if (!needle) return true;
         // Search across every sheet column so an operator can look up a row by
         // SKU or listing id, not only by AWB.
@@ -202,7 +208,9 @@ const ScanAndPackBatch = () => {
       try {
         const outcome = await dispatchPrint(batch.id, order, part);
         if (aliveRef.current) {
-          if (outcome.viaAgent) toast.success(`Reprinted ${order.awbRaw || order.awb}.`);
+          if (outcome.viaAgent) {
+            toast.success(readOutputMode() === "download" ? outcome.message : `Reprinted ${order.awbRaw || order.awb}.`);
+          }
           else toast(outcome.message, { duration: 6000 });
         }
       } catch (err) {
@@ -396,6 +404,8 @@ const ScanAndPackBatch = () => {
 
   const mapped = countMapped(batch.orders);
   const unmapped = batch.orders.length - mapped;
+  const packed = batch.orders.filter((order) => order.packStatus === "packed").length;
+  const ready = batch.orders.length - packed;
 
   return (
     <Page title={`Packlog — ${batch.batchId}`}>
@@ -480,7 +490,13 @@ const ScanAndPackBatch = () => {
         <Stack direction="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={1.25}>
           <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
             {STATUS_TABS.map((tab) => {
-              const count = tab.key === "all" ? batch.orders.length : tab.key === "mapped" ? mapped : unmapped;
+              const count = {
+                all: batch.orders.length,
+                mapped,
+                unmapped,
+                ready,
+                packed,
+              }[tab.key];
               const active = status === tab.key;
               return (
                 <Box

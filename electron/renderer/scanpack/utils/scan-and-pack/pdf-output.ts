@@ -6,6 +6,7 @@
  * IndexedDB holding one copy of each source PDF instead of one slice per row.
  */
 import { ParseSpeeds, PDFDocument } from "pdf-lib";
+import { prunePageResources } from "@shared/utils/pdfPrune";
 import type { ScanPackOrder } from "../../types/scanAndPack.types";
 import { getDocument } from "./db";
 import { elapsed, now } from "./perf";
@@ -88,6 +89,8 @@ export const buildOrderPdf = async (
   const valid = pageIndices.filter((index) => index >= 0 && index < source.getPageCount());
   if (!valid.length) throw new Error("The mapped pages are missing from the source PDF.");
 
+  // AGENT CHANGE: copy only what these pages draw (see shared/utils/pdfPrune.ts).
+  for (const index of valid) prunePageResources(source.getPage(index));
   const copied = await out.copyPages(source, valid);
   copied.forEach((page) => out.addPage(page));
   const saved = await out.save();

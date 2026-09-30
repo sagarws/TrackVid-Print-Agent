@@ -36,6 +36,15 @@ export const SCANPACK_IPC = {
   saveSource: 'scanpack:save-source',
   mapOrders: 'scanpack:map-orders',
   printPart: 'scanpack:print-part',
+  waitForFirst: 'scanpack:wait-for-first',
+  listJobs: 'scanpack:list-jobs',
+  getJob: 'scanpack:get-job',
+  deleteJob: 'scanpack:delete-job',
+  rerunJob: 'scanpack:rerun-job',
+  /** Push: a job changed — { jobs: summaries, job: the changed job with records }. */
+  jobChanged: 'scanpack:job-changed',
+  setWorkers: 'scanpack:set-workers',
+  saveDownload: 'scanpack:save-download',
   /** One-way: timing lines from the window, printed in the app's terminal. */
   perf: 'scanpack:perf'
 } as const

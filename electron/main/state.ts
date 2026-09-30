@@ -41,7 +41,8 @@ export const snapshot = (): AgentState => {
       dir: storageRoot(),
       isDefaultDir: getSettings().scanPackDir === null,
       weeksKept: getSettings().scanPackWeeksKept,
-      lastCleanup: getLastCleanup()
+      lastCleanup: getLastCleanup(),
+      workers: getSettings().scanPackWorkers
     },
     openAtLogin: getSettings().openAtLogin,
     themeMode: getSettings().themeMode,

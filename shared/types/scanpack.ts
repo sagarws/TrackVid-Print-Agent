@@ -84,6 +84,64 @@ export interface CleanupSummary {
   failed: number
 }
 
+/**
+ * One record (sheet row) in a background extraction job.
+ *   pending  waiting for its worker (grey)
+ *   running  its worker is cutting it now (grey, outlined)
+ *   done     every part it has is cut and attached (green)
+ *   missing  no PDF page was found for its AWB (red)
+ *   failed   cutting or saving failed (red)
+ */
+export type JobRecordStatus = 'pending' | 'running' | 'done' | 'missing' | 'failed'
+
+export interface JobRecord {
+  /** 1-based row of the order sheet (xlsx). */
+  record: number
+  awb: string
+  orderId: string
+  /** 1-based worker the record was dealt to (round-robin). */
+  worker: number
+  status: JobRecordStatus
+  /** Parts to cut for this record: label and/or invoice. */
+  parts: PartName[]
+  /** Files written, once done. */
+  files?: string[]
+  /** Time its worker spent on it. */
+  ms?: number
+  error?: string
+}
+
+export type JobState = 'queued' | 'running' | 'finished' | 'cancelled' | 'interrupted'
+
+export interface JobCounts {
+  total: number
+  done: number
+  missing: number
+  failed: number
+}
+
+/** A background extraction job, without its records — the list row. */
+export interface ExtractionJobSummary {
+  id: string
+  /** The packlog's record id. */
+  packlogObjectId: string
+  /** Human id, e.g. SP-20260930-173516-5L1. */
+  packlogId: string
+  orderFileName: string
+  platform: string
+  workers: number
+  state: JobState
+  counts: JobCounts
+  createdAt: string
+  startedAt: string | null
+  finishedAt: string | null
+}
+
+/** The whole job, records included — the expanded row. */
+export interface ExtractionJob extends ExtractionJobSummary {
+  records: JobRecord[]
+}
+
 /** What the Settings page shows about Scan & Pack storage. */
 export interface ScanPackSettingsState {
   /** The folder in use (resolved: the chosen one, or Downloads). */
@@ -91,4 +149,6 @@ export interface ScanPackSettingsState {
   isDefaultDir: boolean
   weeksKept: number
   lastCleanup: CleanupSummary | null
+  /** Parallel PDF extractors. */
+  workers: number
 }

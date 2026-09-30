@@ -1,9 +1,17 @@
 import { existsSync, readdirSync, rmdirSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { CleanupSummary } from '@shared/types/scanpack'
-import { isWeekExpired, ROOT_FOLDER_NAME, WEEK_FOLDER_PATTERN } from '@shared/utils/weekFolder'
+import {
+  DAY_FOLDER_PATTERN,
+  isDayExpired,
+  isWeekExpired,
+  PACKLOG_FOLDER_PATTERN,
+  ROOT_FOLDER_NAME,
+  WEEK_FOLDER_PATTERN
+} from '@shared/utils/weekFolder'
 import { logger } from '../logger'
 import { getSettings } from '../settings'
+import { cancelForPacklog } from './extractor'
 import { allPacklogs, removePacklogWithFiles, storageRoot } from './store'
 
 /**
@@ -14,10 +22,10 @@ import { allPacklogs, removePacklogWithFiles, storageRoot } from './store'
  * "Expired" is the backend's rule with a configurable count: keep the current
  * IST week and the (N-1) before it; anything older goes.
  *
- * Only this app's own files are touched. In an expired week folder a file is
- * deleted only when its name is a packlog PDF (`SP-…-label|invoice|source-….pdf`),
- * and the folder itself is removed only once it is empty — so anything else
- * someone saved there survives.
+ * Only this app's own files are touched. In an expired day folder (and its
+ * packlog folders), or an old-layout week folder, a file is deleted only when
+ * its name is a packlog PDF (`SP-…-label|invoice|source-….pdf`), and a folder
+ * is removed only once it is empty — so anything else saved there survives.
  */
 const OWN_FILE = /^SP-[A-Za-z0-9-]+-(label|invoice|source)-.+\.pdf$/
 
@@ -36,6 +44,7 @@ export const runScanPackCleanup = (now = new Date()): CleanupSummary => {
   for (const packlog of allPacklogs()) {
     if (!isWeekExpired(packlog.weekEnd, now, weeksKept)) continue
     try {
+      cancelForPacklog(packlog._id)
       const result = removePacklogWithFiles(packlog._id)
       summary.packlogsDeleted++
       summary.filesDeleted += result.deleted
@@ -46,24 +55,38 @@ export const runScanPackCleanup = (now = new Date()): CleanupSummary => {
     }
   }
 
+  /** Delete this app's PDFs in `folder`, then the folder itself if nothing else is left. */
+  const sweep = (folder: string): boolean => {
+    for (const file of readdirSync(folder)) {
+      if (!OWN_FILE.test(file)) continue
+      rmSync(join(folder, file), { force: true })
+      summary.filesDeleted++
+    }
+    if (readdirSync(folder).length) return false
+    rmdirSync(folder)
+    summary.foldersDeleted++
+    return true
+  }
+
   const root = join(storageRoot(), ROOT_FOLDER_NAME)
   if (existsSync(root)) {
     for (const name of readdirSync(root)) {
-      const match = WEEK_FOLDER_PATTERN.exec(name)
-      const weekEnd = match?.[2]
-      if (!weekEnd || !isWeekExpired(weekEnd, now, weeksKept)) continue
       const folder = join(root, name)
       try {
         if (!statSync(folder).isDirectory()) continue
-        for (const file of readdirSync(folder)) {
-          if (!OWN_FILE.test(file)) continue
-          rmSync(join(folder, file), { force: true })
-          summary.filesDeleted++
+        // Day-wise layout: scan-and-pack/<day>/<packlogId>/
+        if (DAY_FOLDER_PATTERN.test(name)) {
+          if (!isDayExpired(name, now, weeksKept)) continue
+          for (const packlog of readdirSync(folder)) {
+            const inner = join(folder, packlog)
+            if (PACKLOG_FOLDER_PATTERN.test(packlog) && statSync(inner).isDirectory()) sweep(inner)
+          }
+          sweep(folder)
+          continue
         }
-        if (readdirSync(folder).length === 0) {
-          rmdirSync(folder)
-          summary.foldersDeleted++
-        }
+        // Earlier layout: scan-and-pack/<week>/
+        const weekEnd = WEEK_FOLDER_PATTERN.exec(name)?.[2]
+        if (weekEnd && isWeekExpired(weekEnd, now, weeksKept)) sweep(folder)
       } catch (error) {
         summary.failed++
         logger.warn(`[scanpack.cleanup] could not clean ${folder}`, error)

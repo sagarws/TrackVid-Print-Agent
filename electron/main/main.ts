@@ -1,8 +1,9 @@
 import { app, BrowserWindow, session } from 'electron'
 import { APP_ID } from '@shared/constants/agent'
-import { IPC } from '@shared/constants/channels'
+import { IPC, SCANPACK_IPC } from '@shared/constants/channels'
 import { registerIpc, setOpenAtLogin } from './ipc'
 import { registerScanPackIpc } from './scanpack/ipc'
+import { getJob, listJobs, onJobChanged, startExtraction, stopExtraction } from './scanpack/extractor'
 import { startScanPackCleanup, stopScanPackCleanup } from './scanpack/retention'
 import { flushScanPack } from './scanpack/store'
 import { applyOpenAtLogin, launchedHidden } from './loginItem'
@@ -58,6 +59,12 @@ if (!app.requestSingleInstanceLock()) {
     startServer()
     // Scan & Pack retention: drop weeks older than the Settings window, now and every 6 h.
     startScanPackCleanup()
+    // Background per-order PDF extraction: live updates to the window, and
+    // any job a quit interrupted picks up where it stopped.
+    onJobChanged(jobId => {
+      if (!window.isDestroyed()) window.webContents.send(SCANPACK_IPC.jobChanged, { jobs: listJobs(), job: getJob(jobId) })
+    })
+    startExtraction()
     startPrinterMonitor()
 
     app.on('activate', () => showWindow())
@@ -72,6 +79,7 @@ if (!app.requestSingleInstanceLock()) {
     logger.info('Shutting down')
     stopPrinterMonitor()
     stopScanPackCleanup()
+    stopExtraction()
     // Pending packed-status writes must reach disk before the process ends.
     flushScanPack()
     void stopServer()

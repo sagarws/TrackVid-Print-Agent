@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path'
 import { app } from 'electron'
 import type { ThemeMode } from '@shared/types/agent'
 import { normaliseOrigin } from '@shared/utils/origin'
-import { clampWeeks, DEFAULT_WEEKS_KEPT } from '@shared/utils/weekFolder'
+import { clampWeeks, clampWorkers, DEFAULT_EXTRACT_WORKERS, DEFAULT_WEEKS_KEPT } from '@shared/utils/weekFolder'
 import { logger } from './logger'
 
 /**
@@ -23,6 +23,8 @@ export interface AgentSettings {
   scanPackDir: string | null
   /** Weeks of Scan & Pack data kept: this week plus N-1 before it. */
   scanPackWeeksKept: number
+  /** Utility processes cutting per-order PDFs in parallel after an upload. */
+  scanPackWorkers: number
 }
 
 const THEME_MODES: readonly ThemeMode[] = ['light', 'dark', 'system']
@@ -38,7 +40,8 @@ const defaults = (): AgentSettings => ({
   blockOfflinePrinters: true,
   notifications: true,
   scanPackDir: null,
-  scanPackWeeksKept: DEFAULT_WEEKS_KEPT
+  scanPackWeeksKept: DEFAULT_WEEKS_KEPT,
+  scanPackWorkers: DEFAULT_EXTRACT_WORKERS
 })
 
 let cached: AgentSettings | null = null
@@ -66,7 +69,9 @@ const sanitise = (raw: unknown): AgentSettings => {
     notifications: typeof value.notifications === 'boolean' ? value.notifications : base.notifications,
     scanPackDir: typeof value.scanPackDir === 'string' && value.scanPackDir.trim() ? value.scanPackDir : null,
     scanPackWeeksKept:
-      typeof value.scanPackWeeksKept === 'number' ? clampWeeks(value.scanPackWeeksKept) : base.scanPackWeeksKept
+      typeof value.scanPackWeeksKept === 'number' ? clampWeeks(value.scanPackWeeksKept) : base.scanPackWeeksKept,
+    scanPackWorkers:
+      typeof value.scanPackWorkers === 'number' ? clampWorkers(value.scanPackWorkers) : base.scanPackWorkers
   }
 }
 

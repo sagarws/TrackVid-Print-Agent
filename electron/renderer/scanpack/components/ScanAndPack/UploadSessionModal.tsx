@@ -142,7 +142,7 @@ const UploadSessionModal = ({ open, onClose, onCreated }: Props) => {
     orders: ScanPackBatch["orders"],
     totals: StageTotals,
     sources: { id: string; name: string; bytes: ArrayBuffer; pageCount: number }[]
-  ): Promise<{ total: number; failed: number; firstError: string | null }> => {
+  ): Promise<{ total: number; failed: number; firstError: string | null; backgroundLeft: number }> => {
     const createStart = perfNow();
     // Two-level unwrap: the shared axios helper returns the raw AxiosResponse
     // (so `.data` is the BE envelope), and the BE envelope wraps its payload
@@ -192,6 +192,7 @@ const UploadSessionModal = ({ open, onClose, onCreated }: Props) => {
     let failed = 0;
     let firstError: string | null = null;
     const total = sources.length;
+    let backgroundLeft = 0;
     for (const [index, source] of sources.entries()) {
       if (aliveRef.current) {
         setProgress("Saving label & invoice PDFs…", { done: index, total, unit: "files" });
@@ -225,7 +226,11 @@ const UploadSessionModal = ({ open, onClose, onCreated }: Props) => {
         invoicePages: o.mapping!.invoicePages,
       }));
     if (aliveRef.current) setProgress("Saving page map…");
-    await PacklogService.mapOrders(packlogBackendId, maps);
+    const mapped = (
+      (await PacklogService.mapOrders(packlogBackendId, maps)) as unknown as {
+        data?: { data?: { jobId?: string | null; workers?: number } };
+      }
+    )?.data?.data;
     const mapMs = elapsed(mapStart);
     maps.forEach((m, i) => {
       const order = orders.find((o) => backendIdByAwb.get(o.awb) === m.orderId);
@@ -236,7 +241,21 @@ const UploadSessionModal = ({ open, onClose, onCreated }: Props) => {
     perfLog(`${mapMs} ms taken in save page map (${maps.length} orders, one call)`);
     totals.add("save: page map (all orders)", mapMs);
 
-    return { total, failed, firstError };
+    // AGENT: per-order PDFs are cut in the background on N workers (Settings),
+    // records dealt round-robin. Wait only for the first N — one per worker —
+    // then close; the rest carry on, visible under Background process.
+    if (mapped?.jobId) {
+      const first = Math.max(1, Math.min(mapped.workers ?? 1, maps.length));
+      if (aliveRef.current) setProgress(`Saving the first ${first} record PDF(s)…`);
+      const waitStart = perfNow();
+      await window.printAgent.scanPack.waitForFirst(mapped.jobId, first);
+      const waitMs = elapsed(waitStart);
+      perfLog(`${waitMs} ms taken in wait for the first ${first} record PDF(s) — the rest continue in the background`);
+      totals.add("save: first record PDF(s), before closing", waitMs);
+      backgroundLeft = Math.max(0, maps.length - first);
+    }
+
+    return { total, failed, firstError, backgroundLeft };
   };
 
   const handleSubmit = async () => {
@@ -328,6 +347,7 @@ const UploadSessionModal = ({ open, onClose, onCreated }: Props) => {
       // we surface it as a toast but do NOT roll back the local batch or the
       // "Packlog created" success message.
       let serverPersistFailed = false;
+      let backgroundLeft = 0;
       try {
         const uploaded = await persistPacklogToServer(
           batch,
@@ -340,6 +360,7 @@ const UploadSessionModal = ({ open, onClose, onCreated }: Props) => {
             pageCount: scanned[index]?.report.totalPages ?? 0,
           }))
         );
+        backgroundLeft = uploaded.backgroundLeft;
         if (uploaded.failed > 0) {
           serverPersistFailed = true;
           if (aliveRef.current) {
@@ -368,6 +389,12 @@ const UploadSessionModal = ({ open, onClose, onCreated }: Props) => {
       }
       if (match.stillUnmapped > 0) {
         toast(`${match.stillUnmapped} order(s) had no matching label. Use Bulk Update to top them up.`);
+      }
+      if (backgroundLeft > 0) {
+        toast(
+          `Ready to pack. ${backgroundLeft} more record PDF(s) are being saved in the background — see Background process.`,
+          { duration: 6000 }
+        );
       }
       reset();
       onCreated(batch);

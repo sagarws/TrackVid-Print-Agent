@@ -8,7 +8,7 @@ import type {
 // Packlog client — ported from TrackVid-FE, where it calls TrackVid-BE's
 // /packlog API. Here the same calls go to the agent's main process over IPC
 // (electron/main/scanpack), which keeps the records on this computer and the
-// PDFs in the folder chosen in Settings under `scan-and-pack/<week>/`.
+// PDFs in the folder chosen in Settings under `scan-and-pack/<date>/<packlogId>/`.
 //
 // Every call resolves to the shape the screens already unwrap —
 // `response.data.data` (axios response → backend envelope → payload) — so the
@@ -170,7 +170,7 @@ const deletePacklog = (id: string) => envelope(api().remove(id));
 /**
  * Save one part (label OR invoice) for one order. `bytes` is the sliced PDF
  * produced by `buildOrderPdf(order, part)`; the main process writes it to
- * `<folder>/scan-and-pack/<week>/<packlogId>-<part>-<awb>.pdf`.
+ * `<folder>/scan-and-pack/<date>/<packlogId>/<packlogId>-<part>-<awb>.pdf`.
  */
 const uploadPart = (
   packlogObjectId: string,

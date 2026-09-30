@@ -7,6 +7,7 @@ import TopBar from './layout/TopBar'
 import HomePage from './pages/HomePage'
 import SettingsPage from './pages/SettingsPage'
 import ScanPackSection from './scanpack/ScanPackSection'
+import BackgroundProcessPage from './pages/BackgroundProcessPage'
 
 const App = ({ state }: { state: AgentState }) => {
   const [page, setPage] = useState<Page>('home')
@@ -31,6 +32,7 @@ const App = ({ state }: { state: AgentState }) => {
           {page === 'scanpack' && (
             <ScanPackSection initialPath={scanPackPath} onPathChange={rememberScanPackPath} />
           )}
+          {page === 'background' && <BackgroundProcessPage />}
           {page === 'settings' && <SettingsPage state={state} />}
         </Box>
       </Box>

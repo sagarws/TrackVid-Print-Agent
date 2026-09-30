@@ -10,6 +10,9 @@ export const LOCALSTORAGE_SCANPACK_INVOICE_PRINTER = "scanpack:printer:invoice";
 export const LOCALSTORAGE_SCANPACK_COPY_AWB_ON_PRINT = "scanpack:copyAwbOnPrint";
 // Sticky Print/Download target ("label" | "invoice" | "both").
 export const LOCALSTORAGE_SCANPACK_PRINT_TARGET = "scanpack:printTarget";
+// AGENT: "print" (default) or "download" — Auto Download saves each scanned
+// order's PDF to the Downloads folder instead of printing, and packs it.
+export const LOCALSTORAGE_SCANPACK_OUTPUT_MODE = "scanpack:outputMode";
 // Display names for a packlog's scan mode and the Printer Setup print target.
 export const SCANPACK_PART_LABELS: Record<"label" | "invoice" | "both", string> = {
   label: "Label",

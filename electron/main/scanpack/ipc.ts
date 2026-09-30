@@ -1,13 +1,14 @@
-import { BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent } from 'electron'
-import { mkdir } from 'node:fs/promises'
+import { app, BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent } from 'electron'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { SCANPACK_IPC } from '@shared/constants/channels'
 import type { Result } from '@shared/types/agent'
 import type { CreatePacklogInput, PartName } from '@shared/types/scanpack'
-import { clampWeeks, ROOT_FOLDER_NAME } from '@shared/utils/weekFolder'
+import { clampWeeks, clampWorkers, ROOT_FOLDER_NAME, safeFileName } from '@shared/utils/weekFolder'
+import { cancelForPacklog, deleteJob, enqueueExtraction, getJob, listJobs, rerunJob, waitForFirst } from './extractor'
 import { submitJob } from '../jobs'
 import { logger } from '../logger'
-import { updateSettings } from '../settings'
+import { getSettings, updateSettings } from '../settings'
 import { notify } from '../state'
 import { isRendererUrl } from '../window'
 import { printPerf } from './perf'
@@ -20,6 +21,7 @@ import {
   listPacklogs,
   mapOrders,
   markPacked,
+  resetExtracted,
   printable,
   saveSource,
   ScanPackError,
@@ -79,6 +81,7 @@ export const registerScanPackIpc = (): void => {
   handle(SCANPACK_IPC.get, (id: string) => getPacklog(String(id)))
 
   handle(SCANPACK_IPC.remove, (id: string) => {
+    cancelForPacklog(String(id))
     deletePacklog(String(id))
     return undefined
   })
@@ -109,7 +112,63 @@ export const registerScanPackIpc = (): void => {
         labelPages: Array.isArray(m['labelPages']) ? (m['labelPages'] as unknown[]).map(Number) : [],
         invoicePages: Array.isArray(m['invoicePages']) ? (m['invoicePages'] as unknown[]).map(Number) : []
       }))
-    return mapOrders(String(id), clean)
+    const result = mapOrders(String(id), clean)
+    // Cut the per-order PDFs in the background, on the workers from Settings.
+    const jobId = enqueueExtraction(String(id))
+    return { ...result, jobId, workers: getSettings().scanPackWorkers }
+  })
+
+  handle(SCANPACK_IPC.waitForFirst, async (jobId: unknown, count: unknown) => {
+    if (!isText(jobId)) return undefined
+    await waitForFirst(jobId, Math.max(1, Number(count) || 1))
+    return getJob(jobId)
+  })
+
+  handle(SCANPACK_IPC.listJobs, () => listJobs())
+  handle(SCANPACK_IPC.getJob, (jobId: unknown) => (isText(jobId) ? getJob(jobId) : null))
+  handle(SCANPACK_IPC.deleteJob, (jobId: unknown) => {
+    if (isText(jobId)) deleteJob(jobId)
+    return listJobs()
+  })
+
+  handle(SCANPACK_IPC.rerunJob, (jobId: unknown) => {
+    if (!isText(jobId)) throw new ScanPackError('No job given.', 'bad_request')
+    const next = rerunJob(jobId, resetExtracted)
+    if (!next) throw new ScanPackError('That packlog no longer exists, so there is nothing to re-extract.', 'packlog_not_found')
+    return listJobs()
+  })
+
+  /**
+   * Auto Download: save an order's PDF to the OS Downloads folder, never
+   * overwriting ("<AWB>-label.pdf", then "<AWB>-label (1).pdf" …). Resolves
+   * with the path only once the file is written, which is what lets the pack
+   * screen mark the order Packed.
+   */
+  handle(SCANPACK_IPC.saveDownload, async (bytes: unknown, fileName: unknown) => {
+    const data = toBuffer(bytes)
+    if (data.subarray(0, 5).toString('latin1') !== '%PDF-') throw new ScanPackError('The file is not a PDF.', 'not_pdf')
+    const safe = safeFileName(isText(fileName) ? fileName : 'order.pdf').slice(0, 150)
+    const base = safe.toLowerCase().endsWith('.pdf') ? safe.slice(0, -4) : safe
+    const dir = app.getPath('downloads')
+    await mkdir(dir, { recursive: true })
+    for (let n = 0; n < 1000; n++) {
+      const file = join(dir, n ? `${base} (${n}).pdf` : `${base}.pdf`)
+      try {
+        // 'wx': fail if it exists, so two quick scans never overwrite each other.
+        await writeFile(file, data, { flag: 'wx' })
+        printPerf([`Auto Download saved ${Math.round(data.length / 1024)} KB → ${file}`])
+        return file
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      }
+    }
+    throw new ScanPackError('Too many files with this name in Downloads.', 'name_taken')
+  })
+
+  handle(SCANPACK_IPC.setWorkers, (workers: unknown) => {
+    updateSettings({ scanPackWorkers: clampWorkers(Number(workers)) })
+    notify()
+    return getSettings().scanPackWorkers
   })
 
   /**

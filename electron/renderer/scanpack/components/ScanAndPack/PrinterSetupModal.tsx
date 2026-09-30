@@ -25,8 +25,10 @@ import {
 import {
   LOCALSTORAGE_SCANPACK_INVOICE_PRINTER,
   LOCALSTORAGE_SCANPACK_LABEL_PRINTER,
+  LOCALSTORAGE_SCANPACK_OUTPUT_MODE,
   LOCALSTORAGE_SCANPACK_PRINT_TARGET,
 } from "../../config/constant";
+import { readOutputMode, type OutputMode } from "../../utils/scan-and-pack/print-dispatch";
 
 type PrintTarget = "label" | "invoice" | "both";
 
@@ -93,6 +95,7 @@ const PrinterSetupModal = ({ open, onClose }: Props) => {
     () => localStorage.getItem(LOCALSTORAGE_SCANPACK_INVOICE_PRINTER) ?? ""
   );
   const [printTarget, setPrintTarget] = useState<PrintTarget>(readStoredTarget);
+  const [outputMode, setOutputMode] = useState<OutputMode>(readOutputMode);
   // Saved printers the agent no longer reports, cleared on this open.
   const [cleared, setCleared] = useState<string[]>([]);
 
@@ -150,6 +153,10 @@ const PrinterSetupModal = ({ open, onClose }: Props) => {
     setInvoicePrinter(value);
     persist(LOCALSTORAGE_SCANPACK_INVOICE_PRINTER, value);
   };
+  const handleOutputMode = (value: OutputMode) => {
+    setOutputMode(value);
+    localStorage.setItem(LOCALSTORAGE_SCANPACK_OUTPUT_MODE, value);
+  };
   const handlePrintTarget = (value: PrintTarget) => {
     setPrintTarget(value);
     // Sticky preference reused across packlogs. The pack page re-reads it
@@ -184,7 +191,7 @@ const PrinterSetupModal = ({ open, onClose }: Props) => {
 
   const handleClose = () => {
     // A subtle confirmation so the operator knows the choices survived close.
-    if (probe.status === "ready" && (labelPrinter || invoicePrinter)) {
+    if (probe.status === "ready" && (outputMode === "download" || labelPrinter || invoicePrinter)) {
       toast.success("Printer settings saved.");
     }
     onClose();
@@ -295,12 +302,43 @@ const PrinterSetupModal = ({ open, onClose }: Props) => {
             Connected to the TrackVid Print Agent · {probe.printers.length} printer(s) found.
           </Alert>
 
+          {/* AGENT: what a scan does with the PDF — print it, or save it. */}
+          <Box>
+            <SectionHeading>Output</SectionHeading>
+            <FormControl sx={{ mt: 0.5 }}>
+              <RadioGroup
+                row
+                value={outputMode}
+                onChange={(_, value) => handleOutputMode(value as OutputMode)}
+                sx={{ gap: 1.5 }}
+              >
+                <FormControlLabel
+                  value="print"
+                  control={<Radio size="small" />}
+                  label={<Typography sx={{ fontSize: 13, fontWeight: 500 }}>Print</Typography>}
+                />
+                <FormControlLabel
+                  value="download"
+                  control={<Radio size="small" />}
+                  label={<Typography sx={{ fontSize: 13, fontWeight: 500 }}>Auto Download</Typography>}
+                />
+              </RadioGroup>
+            </FormControl>
+            <Typography sx={{ fontSize: 11, color: "text.secondary", mt: 0.25 }}>
+              {outputMode === "download"
+                ? "Each scanned order's PDF is saved to your Downloads folder — no printer, no dialog — and the order is marked Packed once the file is saved."
+                : "Each scanned order is printed on the printers below and marked Packed once the printer accepts it."}
+            </Typography>
+          </Box>
+
+          <Divider />
+
           {/* Print target first — it decides which parts are ever printed, so
               asking for it up front lets the assignment below show only the
               printers this bench will actually use. Sticky per-machine: the
               pack page reads it at load and each time this modal closes. */}
           <Box>
-            <SectionHeading>Print Target</SectionHeading>
+            <SectionHeading>{outputMode === "download" ? "Download Target" : "Print Target"}</SectionHeading>
             <FormControl sx={{ mt: 0.5 }}>
               <RadioGroup
                 row
@@ -326,14 +364,21 @@ const PrinterSetupModal = ({ open, onClose }: Props) => {
               </RadioGroup>
             </FormControl>
             <Typography sx={{ fontSize: 11, color: "text.secondary", mt: 0.25 }}>
-              What a scan prints on the pack page. It must match the packlog's scan mode
-              (Label, Invoice or Both, chosen at upload) — otherwise printing is blocked.
+              What a scan {outputMode === "download" ? "downloads" : "prints"} on the pack page. It must match the
+              packlog's scan mode (Label, Invoice or Both, chosen at upload) — otherwise it is blocked.
             </Typography>
           </Box>
 
           <Divider />
 
-          {/* Printer Assignment — follows the target above. */}
+          {outputMode === "download" ? (
+            <Alert severity="info" variant="outlined" sx={{ borderRadius: "6px", "& .MuiAlert-message": { fontSize: 12 } }}>
+              No printer is used while <b>Auto Download</b> is on. Files are named{" "}
+              <b>{"<AWB>"}-{printTarget}.pdf</b> and saved to your Downloads folder; a name already
+              taken gets a number added. Switch back to <b>Print</b> to use the printers.
+            </Alert>
+          ) : (
+          /* Printer Assignment — follows the target above. */
           <Box>
             <SectionHeading>Printer Assignment</SectionHeading>
             <Typography sx={{ fontSize: 11, color: "text.secondary", mt: 0.25 }}>
@@ -423,10 +468,11 @@ const PrinterSetupModal = ({ open, onClose }: Props) => {
                 sx={{ mt: 1.25, borderRadius: "6px", "& .MuiAlert-message": { fontSize: 12 } }}
               >
                 <b>{printer.displayName}</b> is {printer.status?.message.toLowerCase() ?? "not ready"}.
-                Until it is back, prints to it open the browser print dialog instead.
+                Until it is back, prints to it are refused and the order stays Ready to pack.
               </Alert>
             ))}
           </Box>
+          )}
 
           <Typography sx={{ fontSize: 11, color: "text.secondary" }}>
             Choices are saved on this machine and reused for every Scan &amp; Pack session.

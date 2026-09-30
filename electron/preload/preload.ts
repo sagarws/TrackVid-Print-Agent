@@ -1,7 +1,13 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { IPC, SCANPACK_IPC } from '@shared/constants/channels'
 import type { AgentState, Result, ThemeMode } from '@shared/types/agent'
-import type { CleanupSummary, CreatePacklogInput, PartName } from '@shared/types/scanpack'
+import type {
+  CleanupSummary,
+  CreatePacklogInput,
+  ExtractionJob,
+  ExtractionJobSummary,
+  PartName
+} from '@shared/types/scanpack'
 
 /**
  * The window's whole reach into the main process. Nothing else is exposed:
@@ -49,7 +55,23 @@ const api = {
     mapOrders: (
       id: string,
       maps: { orderId: string; docId: string; labelPages: number[]; invoicePages: number[] }[]
-    ): Promise<Result<{ mapped: number; mappedCount: number }>> => ipcRenderer.invoke(SCANPACK_IPC.mapOrders, id, maps),
+    ): Promise<Result<{ mapped: number; mappedCount: number; jobId: string | null; workers: number }>> =>
+      ipcRenderer.invoke(SCANPACK_IPC.mapOrders, id, maps),
+    waitForFirst: (jobId: string, count: number): Promise<Result<ExtractionJob | null>> =>
+      ipcRenderer.invoke(SCANPACK_IPC.waitForFirst, jobId, count),
+    listJobs: (): Promise<Result<ExtractionJobSummary[]>> => ipcRenderer.invoke(SCANPACK_IPC.listJobs),
+    getJob: (jobId: string): Promise<Result<ExtractionJob | null>> => ipcRenderer.invoke(SCANPACK_IPC.getJob, jobId),
+    deleteJob: (jobId: string): Promise<Result<ExtractionJobSummary[]>> => ipcRenderer.invoke(SCANPACK_IPC.deleteJob, jobId),
+    rerunJob: (jobId: string): Promise<Result<ExtractionJobSummary[]>> => ipcRenderer.invoke(SCANPACK_IPC.rerunJob, jobId),
+    setWorkers: (workers: number): Promise<Result<number>> => ipcRenderer.invoke(SCANPACK_IPC.setWorkers, workers),
+    saveDownload: (bytes: Uint8Array, fileName: string): Promise<Result<string>> =>
+      ipcRenderer.invoke(SCANPACK_IPC.saveDownload, bytes, fileName),
+    onJobChanged: (listener: (update: { jobs: ExtractionJobSummary[]; job: ExtractionJob | null }) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, update: { jobs: ExtractionJobSummary[]; job: ExtractionJob | null }) =>
+        listener(update)
+      ipcRenderer.on(SCANPACK_IPC.jobChanged, handler)
+      return () => ipcRenderer.removeListener(SCANPACK_IPC.jobChanged, handler)
+    },
     printPart: (id: string, orderId: string, parts: PartName[], printer: string, jobName: string): Promise<Result<unknown>> =>
       ipcRenderer.invoke(SCANPACK_IPC.printPart, id, orderId, parts, printer, jobName),
     print: (printer: string, bytes: Uint8Array, jobName: string): Promise<Result<{ jobId: string; status: string }>> =>
