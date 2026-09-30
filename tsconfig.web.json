@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    /*
+     * OFF for the renderer only, as in Trackvid-CMS: the theme under @core,
+     * @layouts and configs is ported file for file from TrackVid-Monitor and
+     * passes optional props straight through. The main process and shared/
+     * keep the flag.
+     */
+    "exactOptionalPropertyTypes": false,
+    "composite": true,
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": []
+  },
+  "include": ["electron/renderer/**/*.ts", "electron/renderer/**/*.tsx", "shared/**/*.ts"]
+}

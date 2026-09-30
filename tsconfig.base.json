@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+
+    "strict": true,
+    "noImplicitOverride": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "verbatimModuleSyntax": true,
+
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@shared/*": ["shared/*"],
+      "@main/*": ["electron/main/*"],
+      "@renderer/*": ["electron/renderer/*"],
+      "@core/*": ["electron/renderer/@core/*"],
+      "@layouts/*": ["electron/renderer/@layouts/*"],
+      "@configs/*": ["electron/renderer/configs/*"],
+      "@/*": ["electron/renderer/*"]
+    }
+  }
+}

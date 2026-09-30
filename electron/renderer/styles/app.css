@@ -1,0 +1,15 @@
+/*
+ * The renderer's one stylesheet — Trackvid-CMS's entry, minus the outgoing
+ * token system and the screens this app does not have.
+ *
+ * NO PREFLIGHT: theme + utilities only, and MUI's CssBaseline does the reset,
+ * as in Monitor and the CMS.
+ */
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme) important;
+@import 'tailwindcss/utilities.css' layer(utilities) important;
+@plugin 'tailwindcss-logical';
+
+@import './vuexy.css';
+@import './fonts.css';
+@import './icons.css';

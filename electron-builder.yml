@@ -1,0 +1,50 @@
+appId: com.trackvid.printagent
+productName: TrackVid Print Agent
+copyright: Copyright © 2026 TrackVid
+directories:
+  buildResources: build
+  output: release/${version}
+files:
+  - out/**
+  - package.json
+  - '!**/*.map'
+asar: true
+# No native modules. pdf-to-printer is plain JS that spawns a bundled
+# SumatraPDF.exe, so nothing needs rebuilding against Electron's ABI.
+npmRebuild: false
+# SumatraPDF.exe cannot be executed from inside app.asar. The main process
+# points pdf-to-printer at the unpacked copy (see electron/main/print/windows.ts).
+asarUnpack:
+  - node_modules/pdf-to-printer/dist/*.exe
+# The tray icon is read from disk at runtime, outside the asar.
+extraResources:
+  - from: build/icon.png
+    to: trayIcon.png
+win:
+  target:
+    - nsis
+  artifactName: TrackVid-Print-Agent-${arch}-setup.${ext}
+nsis:
+  oneClick: true
+  perMachine: false
+  runAfterFinish: true
+  createDesktopShortcut: false
+  createStartMenuShortcut: true
+  shortcutName: TrackVid Print Agent
+mac:
+  category: public.app-category.business
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  artifactName: TrackVid-Print-Agent-${arch}.${ext}
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # A menu-bar agent: no Dock icon until the window is opened.
+  extendInfo:
+    LSUIElement: true
+dmg:
+  artifactName: TrackVid-Print-Agent-${arch}.${ext}
