@@ -33,6 +33,9 @@ export const SCANPACK_IPC = {
   openDir: 'scanpack:open-dir',
   setWeeksKept: 'scanpack:set-weeks-kept',
   runCleanup: 'scanpack:run-cleanup',
+  saveSource: 'scanpack:save-source',
+  mapOrders: 'scanpack:map-orders',
+  printPart: 'scanpack:print-part',
   /** One-way: timing lines from the window, printed in the app's terminal. */
   perf: 'scanpack:perf'
 } as const

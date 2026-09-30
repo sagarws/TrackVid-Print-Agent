@@ -3,12 +3,15 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, w
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { app } from 'electron'
+import { ParseSpeeds, PDFDocument } from 'pdf-lib'
 import type {
   CreatePacklogInput,
+  PageRef,
   PartName,
   StoredPacklog,
   StoredPacklogOrder
 } from '@shared/types/scanpack'
+import { pageList } from '@shared/utils/pageList'
 import { partFileName, ROOT_FOLDER_NAME, weekRangeFor } from '@shared/utils/weekFolder'
 import { logger } from '../logger'
 import { printPerf, since } from './perf'
@@ -111,7 +114,7 @@ const get = (id: string): Entry => {
   return entry
 }
 
-const isMapped = (o: StoredPacklogOrder) => Boolean(o.labelFile || o.invoiceFile)
+const isMapped = (o: StoredPacklogOrder) => Boolean(o.labelFile || o.invoiceFile || o.labelRef || o.invoiceRef)
 
 // ---------------------------------------------------------------------------
 // Create
@@ -271,12 +274,7 @@ export const uploadPart = async (
   return { file, pageCount }
 }
 
-export const downloadPart = async (id: string, orderId: string, part: PartName): Promise<Buffer> => {
-  const entry = get(id)
-  const order = entry.orders.find(o => o._id === orderId)
-  if (!order) throw new ScanPackError('That order is not in this packlog.', 'order_not_found')
-  const file = part === 'label' ? order.labelFile : order.invoiceFile
-  if (!file) throw new ScanPackError(`This order has no ${part} PDF.`, 'part_missing')
+const readStored = async (file: string, part: PartName): Promise<Buffer> => {
   try {
     return await readFile(file)
   } catch (error) {
@@ -288,6 +286,143 @@ export const downloadPart = async (id: string, orderId: string, part: PartName):
     }
     throw error
   }
+}
+
+// ---------------------------------------------------------------------------
+// Source PDFs + page maps (no per-order PDFs are cut at upload)
+// ---------------------------------------------------------------------------
+
+/**
+ * Save one uploaded label/invoice PDF, once, in the packlog's week folder:
+ * `<packlogId>-source-<n>.pdf`. Saving the same docId again replaces it.
+ */
+export const saveSource = async (id: string, docId: string, name: string, bytes: Buffer, pageCount: number) => {
+  const entry = get(id)
+  if (bytes.subarray(0, 5).toString('latin1') !== '%PDF-') {
+    throw new ScanPackError('The file is not a PDF.', 'not_pdf')
+  }
+  const sources = (entry.packlog.sources ??= [])
+  const existing = sources.find(s => s.docId === docId)
+  const n = existing ? sources.indexOf(existing) + 1 : sources.length + 1
+  const week = weekRangeFor(new Date(entry.packlog.createdAt))
+  const folder = join(storageRoot(), ROOT_FOLDER_NAME, week.folderName)
+  const start = performance.now()
+  await mkdir(folder, { recursive: true })
+  const file = join(folder, partFileName(entry.packlog.packlogId, 'source', String(n)))
+  await writeFile(file, bytes)
+  const writeMs = since(start)
+  if (existing) Object.assign(existing, { file, name, pageCount })
+  else sources.push({ docId, file, name, pageCount })
+  entry.packlog.updatedAt = new Date().toISOString()
+  // Written now, not coalesced: the page map that follows points into it.
+  writeEntry(entry)
+  dirty.delete(id)
+  printPerf([`${writeMs} ms taken in save source PDF ${n} (${Math.round(bytes.length / 1024)} KB, ${pageCount} pages) → ${file}`])
+  return { file }
+}
+
+/** Point each order at its pages of a source PDF. One call for the whole upload. */
+export const mapOrders = (
+  id: string,
+  maps: { orderId: string; docId: string; labelPages: number[]; invoicePages: number[] }[]
+) => {
+  const entry = get(id)
+  const sources = new Set((entry.packlog.sources ?? []).map(s => s.docId))
+  const byId = new Map(entry.orders.map(o => [o._id, o]))
+  let mapped = 0
+  for (const map of maps) {
+    const order = byId.get(map.orderId)
+    if (!order || !sources.has(map.docId)) continue
+    const valid = (pages: number[]) => pages.filter(p => Number.isInteger(p) && p >= 0)
+    const label = valid(map.labelPages)
+    const invoice = valid(map.invoicePages)
+    if (label.length) order.labelRef = { docId: map.docId, pages: label }
+    if (invoice.length) order.invoiceRef = { docId: map.docId, pages: invoice }
+    if (label.length || invoice.length) {
+      order.mappedAt ??= new Date().toISOString()
+      mapped++
+    }
+  }
+  entry.packlog.mappedCount = entry.orders.filter(isMapped).length
+  entry.packlog.updatedAt = new Date().toISOString()
+  writeEntry(entry)
+  dirty.delete(id)
+  return { mapped, mappedCount: entry.packlog.mappedCount }
+}
+
+type Located = { kind: 'file'; file: string } | { kind: 'ref'; file: string; pages: number[] }
+
+const locate = (entry: Entry, order: StoredPacklogOrder, part: PartName): Located | null => {
+  const own = part === 'label' ? order.labelFile : order.invoiceFile
+  if (own) return { kind: 'file', file: own }
+  const ref: PageRef | null | undefined = part === 'label' ? order.labelRef : order.invoiceRef
+  if (!ref) return null
+  const source = entry.packlog.sources?.find(s => s.docId === ref.docId)
+  if (!source) throw new ScanPackError('The source PDF for this order is missing from the packlog.', 'file_missing')
+  return { kind: 'ref', file: source.file, pages: ref.pages }
+}
+
+const orderIn = (entry: Entry, orderId: string) => {
+  const order = entry.orders.find(o => o._id === orderId)
+  if (!order) throw new ScanPackError('That order is not in this packlog.', 'order_not_found')
+  return order
+}
+
+/**
+ * What to send to the printer for these parts of one order: the file's bytes
+ * and, for a source PDF, the page list to print from it. Label + invoice from
+ * the same source become one job with both pages.
+ */
+export const printable = async (id: string, orderId: string, parts: PartName[]) => {
+  const entry = get(id)
+  const order = orderIn(entry, orderId)
+  const located = parts.map(part => ({ part, at: locate(entry, order, part) }))
+  const missing = located.find(l => !l.at)
+  if (missing) throw new ScanPackError(`This order has no ${missing.part} mapped — nothing to print.`, 'part_missing')
+  const all = located.map(l => l.at!)
+  const first = all[0]!
+  if (all.length === 1 || all.every(a => a.kind === 'ref' && a.file === first.file)) {
+    const pages = first.kind === 'ref' ? pageList(all.flatMap(a => (a.kind === 'ref' ? a.pages : []))) : undefined
+    return [{ bytes: await readStored(first.file, parts[0]!), ...(pages ? { pages } : {}) }]
+  }
+  // Separate files: one job each, in order.
+  return Promise.all(
+    all.map(async (a, i) => ({
+      bytes: await readStored(a.file, parts[i]!),
+      ...(a.kind === 'ref' ? { pages: pageList(a.pages) } : {})
+    }))
+  )
+}
+
+/**
+ * The parsed source for on-demand cutting (preview / download): kept for the
+ * last file only, keyed by path + size so a replaced file is re-read.
+ */
+let parsed: { key: string; doc: Promise<PDFDocument> } | null = null
+
+const cutPages = async (file: string, pages: number[], part: PartName): Promise<Buffer> => {
+  const bytes = await readStored(file, part)
+  const key = `${file}:${bytes.length}`
+  if (parsed?.key !== key) {
+    parsed = { key, doc: PDFDocument.load(bytes, { parseSpeed: ParseSpeeds.Fastest }) }
+    parsed.doc.catch(() => {
+      parsed = null
+    })
+  }
+  const source = await parsed.doc
+  const out = await PDFDocument.create()
+  const valid = pages.filter(p => p < source.getPageCount())
+  if (!valid.length) throw new ScanPackError('The mapped pages are missing from the source PDF.', 'file_missing')
+  for (const page of await out.copyPages(source, valid)) out.addPage(page)
+  return Buffer.from(await out.save())
+}
+
+/** One order's part as its own PDF — for the preview and the Download button. */
+export const downloadPart = async (id: string, orderId: string, part: PartName): Promise<Buffer> => {
+  const entry = get(id)
+  const at = locate(entry, orderIn(entry, orderId), part)
+  if (!at) throw new ScanPackError(`This order has no ${part} PDF.`, 'part_missing')
+  return at.kind === 'file' ? readStored(at.file, part) : cutPages(at.file, at.pages, part)
 }
 
 // ---------------------------------------------------------------------------
@@ -316,8 +451,12 @@ export const markPacked = (id: string, orderId: string) => {
 const deleteFiles = (entry: Entry): { deleted: number; failed: number } => {
   let deleted = 0
   let failed = 0
-  for (const order of entry.orders) {
-    for (const file of [order.labelFile, order.invoiceFile]) {
+  const files = [
+    ...entry.orders.flatMap(order => [order.labelFile, order.invoiceFile]),
+    ...(entry.packlog.sources ?? []).map(source => source.file)
+  ]
+  {
+    for (const file of files) {
       if (!file) continue
       try {
         if (existsSync(file)) {

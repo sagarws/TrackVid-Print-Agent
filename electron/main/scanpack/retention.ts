@@ -15,11 +15,11 @@ import { allPacklogs, removePacklogWithFiles, storageRoot } from './store'
  * IST week and the (N-1) before it; anything older goes.
  *
  * Only this app's own files are touched. In an expired week folder a file is
- * deleted only when its name is a packlog PDF (`SP-…-label|invoice-….pdf`),
+ * deleted only when its name is a packlog PDF (`SP-…-label|invoice|source-….pdf`),
  * and the folder itself is removed only once it is empty — so anything else
  * someone saved there survives.
  */
-const OWN_FILE = /^SP-[A-Za-z0-9-]+-(label|invoice)-.+\.pdf$/
+const OWN_FILE = /^SP-[A-Za-z0-9-]+-(label|invoice|source)-.+\.pdf$/
 
 /** Runs at startup, then every 6 hours (the backend runs nightly; a laptop may not be on at 2 am). */
 const INTERVAL_MS = 6 * 60 * 60 * 1000

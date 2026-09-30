@@ -11,7 +11,6 @@ import { parseOrderSheet } from "../../utils/scan-and-pack/sheet";
 import { MAX_PDF_BYTES, MAX_PDF_MB, formatMb, scanLabelPdfs } from "../../utils/scan-and-pack/pdf-scan";
 import { applyScanReports, buildOrders, generateBatchId } from "../../utils/scan-and-pack/batch";
 import { saveBatch, saveDocuments } from "../../utils/scan-and-pack/db";
-import { buildOrderPdf } from "../../utils/scan-and-pack/pdf-output";
 import { elapsed, now as perfNow, perfLog, recordLabel, StageTotals } from "../../utils/scan-and-pack/perf";
 import { PacklogService } from "../../api/packlog-service";
 import type { ScanMode, ScanPackBatch, ScanPackDocument } from "../../types/scanAndPack.types";
@@ -131,24 +130,18 @@ const UploadSessionModal = ({ open, onClose, onCreated }: Props) => {
   };
 
   /**
-   * Mirror a freshly-created batch to the server: `POST /packlog` for the
-   * metadata, then per-order multipart uploads for every mapped label /
-   * invoice PDF (built on the fly with `buildOrderPdf`).
+   * Save a freshly-created batch: the packlog record, then (AGENT CHANGE) each
+   * source PDF once and every order's page numbers in one call — see below.
    *
-   * The caller AWAITS this so the modal only closes once the record + all
-   * S3 uploads are in place. That way when the list refetches on `onCreated`,
-   * the new row already shows the final `mappedCount` — no "0 / 13 → refresh
-   * → 2 / 13" surprise. Uploads run in parallel so the wait is bounded to a
-   * few seconds even for a full batch.
-   *
-   * Individual upload failures are logged but don't reject the whole call
-   * (Promise.allSettled): one bad order shouldn't tank the rest, and the
-   * BE-side `mappedCount` will still reflect the successful ones.
+   * The caller AWAITS this so the modal only closes once everything is on
+   * disk. That way when the list refetches on `onCreated`, the new row already
+   * shows the final `mappedCount` — no "0 / 13 → refresh → 2 / 13" surprise.
    */
   const persistPacklogToServer = async (
     batch: ScanPackBatch,
     orders: ScanPackBatch["orders"],
-    totals: StageTotals
+    totals: StageTotals,
+    sources: { id: string; name: string; bytes: ArrayBuffer; pageCount: number }[]
   ): Promise<{ total: number; failed: number; firstError: string | null }> => {
     const createStart = perfNow();
     // Two-level unwrap: the shared axios helper returns the raw AxiosResponse
@@ -188,132 +181,62 @@ const UploadSessionModal = ({ open, onClose, onCreated }: Props) => {
       throw new Error("Server did not return a packlog id — packlog not saved to server.");
     }
 
-    // Collect one upload per (order, part). Building the sliced PDF is the
-    // slow bit (pdf-lib + IndexedDB read), so we do that for every job first
-    // and hand the bytes to a bounded-concurrency runner.
-    interface UploadJob {
-      backendId: string;
-      part: "label" | "invoice";
-      pageCount: number;
-      awb: string;
-      bytes: Uint8Array;
-      /** 1-based sheet row, for the time log. */
-      record: number;
-    }
-    const jobs: UploadJob[] = [];
-    const toPrepare = orders.filter((o) => o.mapping && backendIdByAwb.has(o.awb));
-    for (const [index, order] of toPrepare.entries()) {
-      if (!order.mapping) continue;
-      const backendId = backendIdByAwb.get(order.awb);
-      if (!backendId) continue;
-      if (aliveRef.current) {
-        setProgress("Preparing label & invoice PDFs…", { done: index, total: toPrepare.length, unit: "orders" });
-      }
-      const record = order.rowIndex + 1;
-      const label = recordLabel("record", record, order.awb || order.awbRaw);
-      // One line per step of cutting this order's PDF out of the source.
-      const timed = (part: "label" | "invoice") => (t: {
-        readSourceMs: number;
-        loadSourceMs: number;
-        copyAndSaveMs: number;
-        sourceKb: number;
-        reused: boolean;
-      }) => {
-        if (t.reused) {
-          perfLog(`${label} 0 ms taken in prepare-${part}: source PDF already parsed (reused)`);
-        } else {
-          perfLog(`${label} ${t.readSourceMs} ms taken in prepare-${part}: read source PDF from browser storage (${t.sourceKb} KB)`);
-          perfLog(`${label} ${t.loadSourceMs} ms taken in prepare-${part}: parse whole source PDF once (pdf-lib)`);
-        }
-        perfLog(`${label} ${t.copyAndSaveMs} ms taken in prepare-${part}: copy ${part} page(s) + build new PDF`);
-        totals.add("prepare: read source from browser storage", t.readSourceMs);
-        totals.add("prepare: parse whole source PDF", t.loadSourceMs);
-        totals.add("prepare: copy pages + build PDF", t.copyAndSaveMs);
-      };
-      try {
-        if (order.mapping.labelPages.length > 0) {
-          jobs.push({
-            backendId,
-            part: "label",
-            pageCount: order.mapping.labelPages.length,
-            awb: order.awb || order.awbRaw,
-            bytes: await buildOrderPdf(order, "label", timed("label")),
-            record,
-          });
-        }
-        if (order.mapping.invoicePages.length > 0) {
-          jobs.push({
-            backendId,
-            part: "invoice",
-            pageCount: order.mapping.invoicePages.length,
-            awb: order.awb || order.awbRaw,
-            bytes: await buildOrderPdf(order, "invoice", timed("invoice")),
-            record,
-          });
-        }
-      } catch (err) {
-        console.warn(`[scan-and-pack] failed to slice ${order.awb}:`, err);
-      }
-    }
-
-    if (!jobs.length) return { total: 0, failed: 0, firstError: null };
-
-    if (aliveRef.current) {
-      setProgress("Uploading files to server…", { done: 0, total: jobs.length, unit: "files" });
-    }
-
-    // Bounded parallelism: 6 concurrent requests. Enough to saturate a
-    // packing-desk uplink without stampeding a slow one.
-    const CONCURRENCY = 6;
-    let completed = 0;
+    // AGENT CHANGE: no PDF is cut per order. Each uploaded source PDF is
+    // saved once in the week folder, and every order is pointed at its pages
+    // of it in one call. Printing sends the source with a page range; the
+    // preview and Download cut the one order they need, on demand.
+    //
+    // This replaced cutting and saving a PDF per order, which cost ~1.7 s an
+    // order on label PDFs whose pages share their resources (pdf-lib copies
+    // every shared font and image into each one-page file).
     let failed = 0;
     let firstError: string | null = null;
-    const runOne = async (job: UploadJob) => {
+    const total = sources.length;
+    for (const [index, source] of sources.entries()) {
+      if (aliveRef.current) {
+        setProgress("Saving label & invoice PDFs…", { done: index, total, unit: "files" });
+      }
       const saveStart = perfNow();
       try {
-        await PacklogService.uploadPart(
+        await PacklogService.saveSource(
           packlogBackendId,
-          job.backendId,
-          job.part,
-          job.bytes,
-          job.pageCount,
-          job.awb
+          source.id,
+          source.name,
+          new Uint8Array(source.bytes),
+          source.pageCount
         );
       } catch (err) {
         failed++;
-        // The axios interceptor rejects with the server's displayMessage as a
-        // string (e.g. "Google Drive access has expired…"); keep the first one
-        // so the operator is told why, not just that something failed.
-        firstError ??= typeof err === "string" ? err : err instanceof Error ? err.message : null;
-        console.warn(`[scan-and-pack] failed to upload ${job.part}-${job.awb}:`, err);
-      } finally {
-        const saveMs = elapsed(saveStart);
-        perfLog(
-          `${recordLabel("record", job.record, job.awb)} ${saveMs} ms taken in save-${job.part}: send to app + write to folder (round trip, ${Math.round(job.bytes.byteLength / 1024)} KB, up to ${CONCURRENCY} in parallel)`
-        );
-        totals.add("save: send + write each PDF (round trip)", saveMs);
-        completed++;
-        if (aliveRef.current) {
-          setProgress(
-            failed
-              ? `Uploading files to server… ${failed} failed`
-              : "Uploading files to server…",
-            { done: completed, total: jobs.length, unit: "files" }
-          );
-        }
+        firstError ??= err instanceof Error ? err.message : String(err);
+        console.warn(`[scan-and-pack] failed to save ${source.name}:`, err);
       }
-    };
+      const saveMs = elapsed(saveStart);
+      perfLog(`${saveMs} ms taken in save source PDF ${index + 1} of ${total} (${source.name}, round trip)`);
+      totals.add("save: source PDF(s), once each", saveMs);
+    }
 
-    let cursor = 0;
-    const worker = async () => {
-      while (cursor < jobs.length) {
-        const job = jobs[cursor++];
-        if (!job) return;
-        await runOne(job);
-      }
-    };
-    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, jobs.length) }, worker));
-    return { total: jobs.length, failed, firstError };
+    const mapStart = perfNow();
+    const maps = orders
+      .filter((o) => o.mapping && backendIdByAwb.has(o.awb))
+      .map((o) => ({
+        orderId: backendIdByAwb.get(o.awb)!,
+        docId: o.mapping!.docId,
+        labelPages: o.mapping!.labelPages,
+        invoicePages: o.mapping!.invoicePages,
+      }));
+    if (aliveRef.current) setProgress("Saving page map…");
+    await PacklogService.mapOrders(packlogBackendId, maps);
+    const mapMs = elapsed(mapStart);
+    maps.forEach((m, i) => {
+      const order = orders.find((o) => backendIdByAwb.get(o.awb) === m.orderId);
+      perfLog(
+        `${recordLabel("record", (order?.rowIndex ?? i) + 1, order?.awb)} label pages [${m.labelPages.map((p) => p + 1).join(",") || "-"}], invoice pages [${m.invoicePages.map((p) => p + 1).join(",") || "-"}] of ${m.docId} — nothing cut`
+      );
+    });
+    perfLog(`${mapMs} ms taken in save page map (${maps.length} orders, one call)`);
+    totals.add("save: page map (all orders)", mapMs);
+
+    return { total, failed, firstError };
   };
 
   const handleSubmit = async () => {
@@ -406,7 +329,17 @@ const UploadSessionModal = ({ open, onClose, onCreated }: Props) => {
       // "Packlog created" success message.
       let serverPersistFailed = false;
       try {
-        const uploaded = await persistPacklogToServer(batch, match.orders, totals);
+        const uploaded = await persistPacklogToServer(
+          batch,
+          match.orders,
+          totals,
+          documents.map((doc, index) => ({
+            id: doc.id,
+            name: doc.name,
+            bytes: doc.bytes,
+            pageCount: scanned[index]?.report.totalPages ?? 0,
+          }))
+        );
         if (uploaded.failed > 0) {
           serverPersistFailed = true;
           if (aliveRef.current) {

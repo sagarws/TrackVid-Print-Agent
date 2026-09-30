@@ -48,6 +48,9 @@ interface ServerPacklogOrder {
   /** Absolute paths of the stored PDFs on this computer, null until uploaded. */
   labelFile?: string | null;
   invoiceFile?: string | null;
+  /** AGENT: the part as pages of the packlog's source PDF (nothing cut at upload). */
+  labelRef?: { docId: string; pages: number[] } | null;
+  invoiceRef?: { docId: string; pages: number[] } | null;
   labelPageCount?: number;
   invoicePageCount?: number;
   mappedAt?: string | null;
@@ -91,8 +94,8 @@ export const adaptPacklogSummary = (s: ServerPacklogSummary): ScanPackBatch => (
  */
 export const adaptPacklogDetail = (d: ServerPacklogDetail): ScanPackBatch => {
   const orders: ScanPackOrder[] = (d.orders ?? []).map((o) => {
-    const hasLabel = Boolean(o.labelFile);
-    const hasInvoice = Boolean(o.invoiceFile);
+    const hasLabel = Boolean(o.labelFile || o.labelRef);
+    const hasInvoice = Boolean(o.invoiceFile || o.invoiceRef);
     return {
     id: String(o._id),
     rowIndex: o.rowIndex,
@@ -103,8 +106,8 @@ export const adaptPacklogDetail = (d: ServerPacklogDetail): ScanPackBatch => {
       hasLabel || hasInvoice
         ? {
             docId: String(o._id),
-            labelPages: Array(o.labelPageCount ?? (hasLabel ? 1 : 0)).fill(0),
-            invoicePages: Array(o.invoicePageCount ?? (hasInvoice ? 1 : 0)).fill(0),
+            labelPages: Array(o.labelRef?.pages.length ?? o.labelPageCount ?? (hasLabel ? 1 : 0)).fill(0),
+            invoicePages: Array(o.invoiceRef?.pages.length ?? o.invoicePageCount ?? (hasInvoice ? 1 : 0)).fill(0),
           }
         : null,
     // Anything that is not literally "packed" is ready — an absent field on a
@@ -190,6 +193,19 @@ const downloadPart = async (
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 };
 
+/**
+ * AGENT: save one uploaded label/invoice PDF once, in the packlog's week
+ * folder. Replaces cutting and saving a PDF per order.
+ */
+const saveSource = (packlogObjectId: string, docId: string, name: string, bytes: Uint8Array, pageCount: number) =>
+  envelope(api().saveSource(packlogObjectId, docId, name, bytes, pageCount));
+
+/** AGENT: point every order at its pages of a saved source — one call per upload. */
+const mapOrders = (
+  packlogObjectId: string,
+  maps: { orderId: string; docId: string; labelPages: number[]; invoicePages: number[] }[]
+) => envelope(api().mapOrders(packlogObjectId, maps));
+
 /** Mark one order packed. Idempotent: a second call keeps the first `packedAt`. */
 const markPacked = (packlogObjectId: string, orderObjectId: string) =>
   envelope(api().markPacked(packlogObjectId, orderObjectId));
@@ -202,4 +218,6 @@ export const PacklogService = {
   uploadPart,
   downloadPart,
   markPacked,
+  saveSource,
+  mapOrders,
 };

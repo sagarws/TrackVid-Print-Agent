@@ -1,8 +1,15 @@
 /**
  * Scan & Pack records as the agent stores them — the same fields TrackVid-BE
  * keeps in Mongo (Packlog / PacklogOrder), so the screens ported from
- * TrackVid-FE read them through the same adapters. `labelFile` /
- * `invoiceFile` replace the backend's Drive file ids: absolute paths on disk.
+ * TrackVid-FE read them through the same adapters.
+ *
+ * WHERE AN ORDER'S PDF IS — two shapes:
+ *   labelRef / invoiceRef   pages of the packlog's source PDF (current). The
+ *                           source is saved once per packlog; nothing is cut
+ *                           at upload, and a print sends the source with a
+ *                           page range.
+ *   labelFile / invoiceFile a PDF of its own (packlogs saved before that, and
+ *                           Bulk Update top-ups). Still read and printed.
  */
 export type ScanMode = 'label' | 'invoice' | 'both'
 export type PackStatus = 'ready' | 'packed'
@@ -22,6 +29,24 @@ export interface StoredPacklog {
   /** The IST week the packlog was created in; its files live in that folder. */
   weekStart: string
   weekEnd: string
+  /** The uploaded label/invoice PDFs, saved once each in the week folder. */
+  sources?: StoredSource[]
+}
+
+export interface StoredSource {
+  /** The id the upload screen gave the document (`<packlogId>:doc:<n>`). */
+  docId: string
+  /** Absolute path of the saved copy. */
+  file: string
+  /** The operator's original file name, for display. */
+  name: string
+  pageCount: number
+}
+
+/** An order's part as pages of a source PDF. Page indices are 0-based. */
+export interface PageRef {
+  docId: string
+  pages: number[]
 }
 
 export interface StoredPacklogOrder {
@@ -33,6 +58,8 @@ export interface StoredPacklogOrder {
   rawRow: Record<string, string>
   labelFile: string | null
   invoiceFile: string | null
+  labelRef?: PageRef | null
+  invoiceRef?: PageRef | null
   labelPageCount?: number
   invoicePageCount?: number
   mappedAt: string | null

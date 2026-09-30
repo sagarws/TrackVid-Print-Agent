@@ -18,7 +18,10 @@ import {
   downloadPart,
   getPacklog,
   listPacklogs,
+  mapOrders,
   markPacked,
+  printable,
+  saveSource,
   ScanPackError,
   storageRoot,
   uploadPart
@@ -89,6 +92,56 @@ export const registerScanPackIpc = (): void => {
     if (!isPart(part)) throw new ScanPackError('part must be label or invoice.', 'bad_request')
     // Sent as a Uint8Array: structured clone keeps it binary, no base64 round trip.
     return new Uint8Array(await downloadPart(String(id), String(orderId), part))
+  })
+
+  handle(SCANPACK_IPC.saveSource, (id: string, docId: unknown, name: unknown, bytes: unknown, pageCount: unknown) => {
+    if (!isText(docId)) throw new ScanPackError('The source PDF has no id.', 'bad_request')
+    return saveSource(String(id), docId, isText(name) ? name : 'labels.pdf', toBuffer(bytes), Math.max(0, Number(pageCount) || 0))
+  })
+
+  handle(SCANPACK_IPC.mapOrders, (id: string, maps: unknown) => {
+    if (!Array.isArray(maps)) throw new ScanPackError('Expected a list of order pages.', 'bad_request')
+    const clean = maps
+      .filter((m): m is Record<string, unknown> => Boolean(m) && typeof m === 'object')
+      .map(m => ({
+        orderId: typeof m['orderId'] === 'string' ? m['orderId'] : '',
+        docId: typeof m['docId'] === 'string' ? m['docId'] : '',
+        labelPages: Array.isArray(m['labelPages']) ? (m['labelPages'] as unknown[]).map(Number) : [],
+        invoicePages: Array.isArray(m['invoicePages']) ? (m['invoicePages'] as unknown[]).map(Number) : []
+      }))
+    return mapOrders(String(id), clean)
+  })
+
+  /**
+   * Print one order's label / invoice / both on one printer. A part stored as
+   * pages of the source PDF is printed from the source with a page range —
+   * nothing is cut. One job per file, in order.
+   */
+  handle(SCANPACK_IPC.printPart, async (id: string, orderId: string, parts: unknown, printer: unknown, jobName: unknown) => {
+    if (!Array.isArray(parts) || !parts.length || !parts.every(isPart)) {
+      throw new ScanPackError('parts must be label and/or invoice.', 'bad_request')
+    }
+    if (!isText(printer)) throw new ScanPackError('Pick a printer in Printer Setup first.', 'no_printer')
+    const start = performance.now()
+    const items = await printable(String(id), String(orderId), parts)
+    const name = isText(jobName) ? jobName.slice(0, 120) : 'Scan & Pack'
+    const jobs = []
+    for (const item of items) {
+      const job = await submitJob({
+        bytes: item.bytes,
+        printer,
+        name,
+        source: 'Scan & Pack',
+        format: 'pdf',
+        ...(item.pages ? { options: { pages: item.pages } } : {})
+      })
+      if (job.status === 'failed') throw new ScanPackError(job.error ?? 'The printer did not accept the job.', 'print_failed')
+      jobs.push({ jobId: job.id, status: job.status, pages: item.pages ?? null })
+    }
+    printPerf([
+      `${Math.round(performance.now() - start)} ms taken in print ${parts.join(' + ')} (${items.map(i => (i.pages ? `pages ${i.pages} of ${Math.round(i.bytes.length / 1024)} KB source` : `${Math.round(i.bytes.length / 1024)} KB file`)).join('; ')}) → ${printer}`
+    ])
+    return jobs
   })
 
   handle(SCANPACK_IPC.markPacked, (id: string, orderId: string) => markPacked(String(id), String(orderId)))

@@ -62,6 +62,6 @@ export const clampWeeks = (value: number): number =>
   Math.min(MAX_WEEKS_KEPT, Math.max(MIN_WEEKS_KEPT, Math.round(Number.isFinite(value) ? value : DEFAULT_WEEKS_KEPT)))
 
 /** A packlog's file name, exactly as the backend names it on Drive. Safe for any OS. */
-export const partFileName = (packlogId: string, part: 'label' | 'invoice', awb: string): string =>
+export const partFileName = (packlogId: string, part: 'label' | 'invoice' | 'source', awb: string): string =>
   // Characters Windows or macOS refuse in a file name, and control characters.
   [...`${packlogId}-${part}-${awb}.pdf`].map(ch => ('<>:"/\\|?*'.includes(ch) || ch.charCodeAt(0) < 32 ? '_' : ch)).join('')

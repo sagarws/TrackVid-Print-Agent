@@ -8,7 +8,6 @@
  */
 import { PacklogService } from "../../api/packlog-service";
 import type { PrintPart } from "./pdf-output";
-import { printPdfToPrinter } from "./print-agent";
 import {
   LOCALSTORAGE_SCANPACK_INVOICE_PRINTER,
   LOCALSTORAGE_SCANPACK_LABEL_PRINTER,
@@ -53,10 +52,6 @@ export const findPrintTargetMismatch = (
   const mode: ScanMode = scanMode ?? "both";
   return printTarget === mode ? null : { scanMode: mode, printTarget };
 };
-
-/** Inside the agent a refused job is an error to show, not a reason to open a dialog. */
-const agentPrint = (bytes: Uint8Array, printer: string, jobName: string) =>
-  printPdfToPrinter(bytes, printer, jobName);
 
 /**
  * Fetch the PDF bytes for one part of one order from S3 (via the BE). For
@@ -121,6 +116,22 @@ export interface PrintOutcome {
  * rejects the job we fall back to the browser print dialog rather than
  * silently dropping the parcel.
  */
+/**
+ * AGENT CHANGE: print through the agent by reference. The main process sends
+ * the packlog's source PDF with a page range (or an order's own PDF, for
+ * packlogs saved before sources) — no PDF is fetched into this window or cut.
+ */
+const printByRef = async (
+  packlogObjectId: string,
+  orderId: string,
+  parts: ("label" | "invoice")[],
+  printer: string,
+  jobName: string
+) => {
+  const result = await window.printAgent.scanPack.printPart(packlogObjectId, orderId, parts, printer, jobName);
+  if (!result.ok) throw new Error(result.error);
+};
+
 export const dispatchPrint = async (
   packlogObjectId: string,
   order: ScanPackOrder,
@@ -134,13 +145,9 @@ export const dispatchPrint = async (
   // Label and invoice on separate printers: two jobs. A refusal on either
   // throws with the printer's reason, and the parcel is not packed.
   if (part === "both" && labelPrinter && invoicePrinter && labelPrinter !== invoicePrinter) {
-    const [labelBytes, invoiceBytes] = await Promise.all([
-      fetchOrderBytes(packlogObjectId, order, "label"),
-      fetchOrderBytes(packlogObjectId, order, "invoice"),
-    ]);
-    await agentPrint(labelBytes, labelPrinter, `${awb} label`);
+    await printByRef(packlogObjectId, order.id, ["label"], labelPrinter, `${awb} label`);
     try {
-      await agentPrint(invoiceBytes, invoicePrinter, `${awb} invoice`);
+      await printByRef(packlogObjectId, order.id, ["invoice"], invoicePrinter, `${awb} invoice`);
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       throw new Error(`Label sent → ${labelPrinter}, but the invoice was not: ${reason}`, { cause: err });
@@ -148,10 +155,10 @@ export const dispatchPrint = async (
     return { viaAgent: true, message: `Sent label → ${labelPrinter}, invoice → ${invoicePrinter}.` };
   }
 
-  const bytes = await fetchOrderBytes(packlogObjectId, order, part);
   const printerForPart = part === "invoice" ? invoicePrinter || labelPrinter : labelPrinter;
   if (printerForPart) {
-    await agentPrint(bytes, printerForPart, `${awb} ${part}`);
+    const parts: ("label" | "invoice")[] = part === "both" ? ["label", "invoice"] : [part];
+    await printByRef(packlogObjectId, order.id, parts, printerForPart, `${awb} ${part}`);
     return {
       viaAgent: true,
       message: `Sent ${part === "both" ? "label + invoice" : part} → ${printerForPart}.`,

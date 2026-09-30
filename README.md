@@ -92,9 +92,17 @@ marked packed).
   and printing goes straight onto the agent's own queue (no browser-dialog fallback; an
   unassigned printer is an error).
 - **No backend, no Google Drive.** `electron/main/scanpack/` stands in for TrackVid-BE's
-  `/packlog` API over IPC: records in `<userData>/scanpack/<id>.json`, PDFs in
-  `<chosen folder>/scan-and-pack/<YYYY-MM-DD_to_YYYY-MM-DD>/<packlogId>-<part>-<awb>.pdf`,
-  the same week folders (Monday–Sunday, IST) and file names the backend uses on Drive.
+  `/packlog` API over IPC: records in `<userData>/scanpack/<id>.json`, and the uploaded
+  label/invoice PDF saved **once** per packlog as
+  `<chosen folder>/scan-and-pack/<YYYY-MM-DD_to_YYYY-MM-DD>/<packlogId>-source-<n>.pdf`
+  (same week folders as the backend: Monday–Sunday, IST).
+- **No PDF is cut per order.** Each order stores its page numbers in the source. A scan
+  prints the source with a page range (`lp -P 47-48` / SumatraPDF pages); the preview and
+  Download cut that one order on demand in the main process. Cutting per order at upload
+  cost ~1.7 s an order on label PDFs whose pages share their resources. Packlogs saved
+  before this (one PDF per order) still preview and print from those files.
+- **Timing:** every upload step prints `[scanpack:time] For record n … ms taken in …` in the
+  terminal running the app and in `agent.log`, with per-stage totals at the end.
   Packlogs made here do not appear in the web admin, and the other way round.
 - **Settings → Scan & Pack storage:** the folder (default: Downloads), how many weeks to
   keep (default 2 = this week + last week, as on the backend), and Clean up now.

@@ -44,6 +44,14 @@ const api = {
       ipcRenderer.invoke(SCANPACK_IPC.download, id, orderId, part),
     markPacked: (id: string, orderId: string): Promise<Result<unknown>> =>
       ipcRenderer.invoke(SCANPACK_IPC.markPacked, id, orderId),
+    saveSource: (id: string, docId: string, name: string, bytes: Uint8Array, pageCount: number): Promise<Result<unknown>> =>
+      ipcRenderer.invoke(SCANPACK_IPC.saveSource, id, docId, name, bytes, pageCount),
+    mapOrders: (
+      id: string,
+      maps: { orderId: string; docId: string; labelPages: number[]; invoicePages: number[] }[]
+    ): Promise<Result<{ mapped: number; mappedCount: number }>> => ipcRenderer.invoke(SCANPACK_IPC.mapOrders, id, maps),
+    printPart: (id: string, orderId: string, parts: PartName[], printer: string, jobName: string): Promise<Result<unknown>> =>
+      ipcRenderer.invoke(SCANPACK_IPC.printPart, id, orderId, parts, printer, jobName),
     print: (printer: string, bytes: Uint8Array, jobName: string): Promise<Result<{ jobId: string; status: string }>> =>
       ipcRenderer.invoke(SCANPACK_IPC.print, printer, bytes, jobName),
     chooseDir: (): Promise<Result<string | null>> => ipcRenderer.invoke(SCANPACK_IPC.chooseDir),
