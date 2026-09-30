@@ -570,6 +570,29 @@ const UploadSessionModal = ({ open, onClose, onCreated }: Props) => {
               Flipkart PDFs carry only shipping labels — Invoice and Both are unavailable for this platform.
             </Typography>
           )}
+          {/* AGENT: where the AWB is found for this platform, whatever the
+              target — the target only picks which pages each order keeps. */}
+          {(() => {
+            const config = getPlatform(platform);
+            if (!config) return null;
+            const anchor =
+              config.useInvoiceAsAnchor && config.isInvoicePage && config.awbFromInvoiceText ? "invoice" : "label";
+            const keeps =
+              scanMode === "both"
+                ? "each order keeps its label and its invoice"
+                : scanMode === anchor
+                ? `each order keeps its ${anchor}`
+                : anchor === "label"
+                ? "each order keeps the invoice page(s) after its label"
+                : "each order keeps the label page just before its invoice";
+            return (
+              <Typography sx={{ fontSize: 11, color: "text.secondary" }}>
+                {config.label}: the AWB is found on the <b>{anchor}</b>
+                {anchor === "invoice" ? " (its text)" : " (its text, or barcode)"}; with{" "}
+                <b>{scanMode === "both" ? "Both" : scanMode === "label" ? "Label" : "Invoice"}</b>, {keeps}.
+              </Typography>
+            );
+          })()}
         </Stack>
 
         <FileDropZone

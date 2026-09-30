@@ -198,20 +198,19 @@ export const scanLabelPdf = async (
   options.totals?.add("scan: read + open PDF", readMs + loadMs);
 
   const canvas = document.createElement("canvas");
-  // Anchor picks which pass is authoritative for the AWB:
-  //   - scanMode "label"   → force label-anchored (barcode/text on the label).
-  //   - scanMode "invoice" → force invoice-anchored (AWB from invoice text).
-  //   - scanMode "both"    → use platform default (AJIO invoice-anchored,
-  //     others label-anchored).
-  const platformDefaultsInvoice = Boolean(
-    platform.useInvoiceAsAnchor && platformCanInvoice,
-  );
-  const useInvoiceAnchor =
-    scanMode === "invoice"
-      ? true
-      : scanMode === "label"
-      ? false
-      : platformDefaultsInvoice;
+  // AGENT CHANGE — the anchor is the platform's, whatever the scan mode.
+  //
+  // The anchor is WHERE THE AWB IS READ: the page that reliably carries it
+  // (AJIO: the invoice text; Amazon / Myntra / Flipkart: the label). The scan
+  // mode only decides which pages each order keeps (trimmed below).
+  //
+  // It used to follow the mode — "invoice" forced invoice-anchored, "label"
+  // forced label-anchored — so Amazon in Invoice mode found 0 orders when its
+  // invoices did not name the AWB, and AJIO in Label mode fell back to the
+  // label barcode that cropping cuts off. Now Amazon's invoices are the pages
+  // after each label found by barcode, and AJIO's labels are the page before
+  // each invoice found by its text.
+  const useInvoiceAnchor = Boolean(platform.useInvoiceAsAnchor && platformCanInvoice);
   const pageInfos: {
     pageIndex: number;
     text: string;
@@ -376,6 +375,17 @@ export const scanLabelPdf = async (
     labels = labels.map((l) => ({ ...l, invoicePages: [] }));
   } else if (scanMode === "invoice") {
     labels = labels.map((l) => ({ ...l, labelPages: [] }));
+  }
+  // An AWB found on its anchor page but without the part that was asked for
+  // (Invoice mode, and no invoice page follows the label) has nothing to
+  // print: leave the order unmapped rather than mapped to no pages.
+  const withoutPart = labels.filter((l) => !l.labelPages.length && !l.invoicePages.length);
+  if (withoutPart.length) {
+    console.info(
+      `[scan-and-pack] ${withoutPart.length} AWB(s) found on the ${useInvoiceAnchor ? "invoice" : "label"} ` +
+        `but with no ${scanMode} page: ${withoutPart.map((l) => l.awb).join(", ")}`
+    );
+    labels = labels.filter((l) => l.labelPages.length || l.invoicePages.length);
   }
 
   // Breadcrumb for the packing-desk console — makes "no mapping happened"
