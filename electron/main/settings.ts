@@ -1,9 +1,9 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { app } from 'electron'
-import { DEFAULT_ALLOWED_ORIGINS } from '@shared/constants/agent'
 import type { ThemeMode } from '@shared/types/agent'
 import { normaliseOrigin } from '@shared/utils/origin'
+import { clampWeeks, DEFAULT_WEEKS_KEPT } from '@shared/utils/weekFolder'
 import { logger } from './logger'
 
 /**
@@ -19,18 +19,26 @@ export interface AgentSettings {
   blockOfflinePrinters: boolean
   /** Desktop notifications when a printer needs attention or a job fails. */
   notifications: boolean
+  /** Where Scan & Pack writes its PDFs. null = the OS Downloads folder. */
+  scanPackDir: string | null
+  /** Weeks of Scan & Pack data kept: this week plus N-1 before it. */
+  scanPackWeeksKept: number
 }
 
 const THEME_MODES: readonly ThemeMode[] = ['light', 'dark', 'system']
 
 const defaults = (): AgentSettings => ({
-  allowedOrigins: [...DEFAULT_ALLOWED_ORIGINS],
+  // Extra sites saved by an earlier version. The built-in list is in
+  // shared/constants/agent.ts (ALLOWED_ORIGINS) and is not stored.
+  allowedOrigins: [],
   // Only a packaged install registers itself; a dev run must not leave a login
   // item pointing at node_modules/electron behind.
   openAtLogin: app.isPackaged,
   themeMode: 'system',
   blockOfflinePrinters: true,
-  notifications: true
+  notifications: true,
+  scanPackDir: null,
+  scanPackWeeksKept: DEFAULT_WEEKS_KEPT
 })
 
 let cached: AgentSettings | null = null
@@ -55,7 +63,10 @@ const sanitise = (raw: unknown): AgentSettings => {
     themeMode: THEME_MODES.includes(value.themeMode as ThemeMode) ? (value.themeMode as ThemeMode) : base.themeMode,
     blockOfflinePrinters:
       typeof value.blockOfflinePrinters === 'boolean' ? value.blockOfflinePrinters : base.blockOfflinePrinters,
-    notifications: typeof value.notifications === 'boolean' ? value.notifications : base.notifications
+    notifications: typeof value.notifications === 'boolean' ? value.notifications : base.notifications,
+    scanPackDir: typeof value.scanPackDir === 'string' && value.scanPackDir.trim() ? value.scanPackDir : null,
+    scanPackWeeksKept:
+      typeof value.scanPackWeeksKept === 'number' ? clampWeeks(value.scanPackWeeksKept) : base.scanPackWeeksKept
   }
 }
 

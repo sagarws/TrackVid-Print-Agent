@@ -6,13 +6,13 @@ import { formatShortTime, matches } from '../utils/format'
 
 const COLLAPSED = 5
 
-type Tone = 'success' | 'info' | 'error' | 'warning' | 'secondary'
+type Tone = 'success' | 'primary' | 'error' | 'warning' | 'secondary'
 
 const STATUS: Record<JobStatus, { label: string; color: Tone; icon: string; hint: string }> = {
-  sending: { label: 'Sending', color: 'info', icon: 'tabler-loader-2 animate-spin', hint: 'Being handed to the print queue.' },
-  queued: { label: 'Queued', color: 'info', icon: 'tabler-clock', hint: 'Waiting in the print queue for the printer.' },
+  sending: { label: 'Sending', color: 'primary', icon: 'tabler-loader-2 animate-spin', hint: 'Being handed to the print queue.' },
+  queued: { label: 'Queued', color: 'primary', icon: 'tabler-clock', hint: 'Waiting in the print queue for the printer.' },
   held: { label: 'Held', color: 'warning', icon: 'tabler-player-pause', hint: 'Held in the queue until someone releases it.' },
-  printing: { label: 'Printing', color: 'info', icon: 'tabler-loader-2 animate-spin', hint: 'The printer is taking the job now.' },
+  printing: { label: 'Printing', color: 'primary', icon: 'tabler-loader-2 animate-spin', hint: 'The printer is taking the job now.' },
   done: {
     label: 'Completed',
     color: 'success',

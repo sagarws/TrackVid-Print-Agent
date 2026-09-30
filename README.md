@@ -20,7 +20,9 @@ npm run build:win    # NSIS installer (x64)
 ## API (loopback only)
 
 `GET /v1/status` → `{ ok, app, version, allowed, apiVersion: 2 }` answers any browser origin.
-Everything else needs an origin on the **Allowed websites** list.
+Everything else needs an allowed origin. The list is built in, not editable: `https://trackvid.in`,
+`https://*.trackvid.in`, and `http://localhost` / `http://127.0.0.1` on **any port**
+(`ALLOWED_ORIGINS` in `shared/constants/agent.ts`).
 
 | Method | Path | Returns |
 |---|---|---|
@@ -43,7 +45,7 @@ reachable, acceptingJobs, checkedAt }, supplies: [{ name, level: 0-100|null, col
 
 ```jsonc
 {
-  "printer": "Epson_L3250",
+  "printer": "Label_Printer",   // a `name` from GET /v1/printers
   "format": "pdf",              // or "raw": ZPL / EPL / ESC-POS sent to the printer untouched
   "data": "<base64>",           // or, for raw, "text": "^XA...^XZ"
   "jobName": "Label 1234",
@@ -77,7 +79,30 @@ are mirrored in TrackVid-FE `src/config/constant.ts` (`PRINT_AGENT_*`).
   (including other apps'), Clear the queue, Reprint recent jobs. Desktop notifications when a
   printer in use goes offline, runs out of paper, or a job fails.
 
-## Not done yet
+## Scan & Pack (in the app)
+
+The web admin's Scan & Pack flow, ported into the app under **Scan and Pack** in the sidebar:
+packlog list → upload (order sheet + label/invoice PDFs, scanned and matched by Forward AWB)
+→ packlog detail (preview, bulk update, reprint) → pack screen (scan an AWB, it prints and is
+marked packed).
+
+- **Screens** are TrackVid-FE's files in `electron/renderer/scanpack/`, kept close to the
+  originals (lint exemptions in `eslint.config.mjs`). Agent-only changes are marked
+  `AGENT CHANGE`: the label preview draws with pdf.js instead of the browser PDF viewer,
+  and printing goes straight onto the agent's own queue (no browser-dialog fallback; an
+  unassigned printer is an error).
+- **No backend, no Google Drive.** `electron/main/scanpack/` stands in for TrackVid-BE's
+  `/packlog` API over IPC: records in `<userData>/scanpack/<id>.json`, PDFs in
+  `<chosen folder>/scan-and-pack/<YYYY-MM-DD_to_YYYY-MM-DD>/<packlogId>-<part>-<awb>.pdf`,
+  the same week folders (Monday–Sunday, IST) and file names the backend uses on Drive.
+  Packlogs made here do not appear in the web admin, and the other way round.
+- **Settings → Scan & Pack storage:** the folder (default: Downloads), how many weeks to
+  keep (default 2 = this week + last week, as on the backend), and Clean up now.
+- **Retention** runs at startup and every 6 hours: packlogs from expired weeks are deleted
+  with their PDFs; an expired week folder is removed once it is empty. Only files named like
+  a packlog PDF are ever deleted, so anything else saved in those folders survives.
+
+
 
 - Code signing / notarization (unsigned builds warn on first launch).
 - Auto-update.

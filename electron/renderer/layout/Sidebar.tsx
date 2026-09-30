@@ -3,10 +3,11 @@ import type { AgentState } from '@shared/types/agent'
 import { SIDEBAR } from '../theme/brand'
 import logo from '../assets/logo.svg'
 
-export type Page = 'home' | 'settings'
+export type Page = 'home' | 'scanpack' | 'settings'
 
 const NAV: { id: Page; label: string; icon: string }[] = [
   { id: 'home', label: 'Home', icon: 'tabler-smart-home' },
+  { id: 'scanpack', label: 'Scan and Pack', icon: 'tabler-barcode' },
   { id: 'settings', label: 'Settings', icon: 'tabler-settings' }
 ]
 
@@ -55,7 +56,7 @@ const Sidebar = ({ page, onNavigate, state }: { page: Page; onNavigate: (page: P
                 fontWeight: active ? 600 : 500,
                 color: active ? '#fff' : SIDEBAR.text,
                 bgcolor: active ? 'primary.main' : 'transparent',
-                boxShadow: active ? '0 6px 16px -6px rgb(37 99 235 / 0.7)' : 'none',
+                boxShadow: active ? '0 6px 16px -6px rgb(var(--mui-palette-primary-mainChannel) / 0.7)' : 'none',
                 '&:hover': { bgcolor: active ? 'primary.main' : SIDEBAR.hover }
               }}
             >

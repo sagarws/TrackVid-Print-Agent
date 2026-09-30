@@ -1,7 +1,9 @@
 import { app } from 'electron'
-import { DEV_ALLOWED_ORIGINS } from '@shared/constants/agent'
+import { ALLOWED_ORIGINS } from '@shared/constants/agent'
 import type { AgentPrinter, AgentState, PrintJob, ServerStatus } from '@shared/types/agent'
 import { logger } from './logger'
+import { getLastCleanup } from './scanpack/retention'
+import { storageRoot } from './scanpack/store'
 import { getSettings } from './settings'
 
 /**
@@ -18,9 +20,12 @@ let printersCheckedAt: string | null = null
 let jobs: PrintJob[] = []
 const listeners = new Set<Listener>()
 
-/** Origins trusted right now: the saved list, plus the dev ones in a dev run. */
-export const allowedOrigins = (): string[] =>
-  app.isPackaged ? getSettings().allowedOrigins : [...getSettings().allowedOrigins, ...DEV_ALLOWED_ORIGINS]
+/**
+ * Origins trusted right now: the built-in list, plus any site added through
+ * the Allowed Websites card of an earlier version (still in settings.json, so
+ * an upgrade never takes access away).
+ */
+export const allowedOrigins = (): string[] => [...ALLOWED_ORIGINS, ...getSettings().allowedOrigins]
 
 export const snapshot = (): AgentState => {
   const platform = process.platform
@@ -31,8 +36,13 @@ export const snapshot = (): AgentState => {
     printers,
     ...(printersError ? { printersError } : {}),
     printersCheckedAt,
-    allowedOrigins: getSettings().allowedOrigins,
-    devOrigins: app.isPackaged ? [] : [...DEV_ALLOWED_ORIGINS],
+    packaged: app.isPackaged,
+    scanPack: {
+      dir: storageRoot(),
+      isDefaultDir: getSettings().scanPackDir === null,
+      weeksKept: getSettings().scanPackWeeksKept,
+      lastCleanup: getLastCleanup()
+    },
     openAtLogin: getSettings().openAtLogin,
     themeMode: getSettings().themeMode,
     blockOfflinePrinters: getSettings().blockOfflinePrinters,

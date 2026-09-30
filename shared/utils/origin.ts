@@ -8,7 +8,11 @@
  *   https://trackvid.in        exactly that origin
  *   https://*.trackvid.in      any subdomain, one or more levels deep, same
  *                              scheme and port — NOT the bare domain itself
+ *   http://localhost:*         that scheme and host on any port (or none)
  */
+
+/** "http://localhost:*" → scheme + host, matched on any port. */
+const ANY_PORT = /^(https?):\/\/([^/:*@?#]+):\*$/i
 
 /** Normalise an origin the way a browser serialises one; null if it is not one. */
 export const normaliseOrigin = (value: string): string | null => {
@@ -40,6 +44,13 @@ export const isOriginAllowed = (origin: string | undefined, allowed: readonly st
   if (!candidate || candidate.includes('*')) return false
 
   return allowed.some(entry => {
+    const anyPort = ANY_PORT.exec(entry.trim())
+    if (anyPort) {
+      const [, scheme = '', host = ''] = anyPort
+      const url = new URL(candidate)
+      return url.protocol === `${scheme.toLowerCase()}:` && url.hostname === host.toLowerCase()
+    }
+
     const rule = normaliseOrigin(entry)
     if (!rule) return false
     if (!rule.includes('://*.')) return rule === candidate

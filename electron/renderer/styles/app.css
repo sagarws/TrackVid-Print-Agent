@@ -13,3 +13,14 @@
 @import './vuexy.css';
 @import './fonts.css';
 @import './icons.css';
+
+/*
+ * vuexy.css makes <html> a flex container (Monitor's layout wants it), which
+ * makes <body> a flex item sized to its content's min-content width. One
+ * no-wrap line — the Status row — would then widen the whole page past the
+ * window. Let body shrink to the window instead; ellipsis does the rest.
+ */
+body {
+  min-inline-size: 0;
+  flex: 1 1 auto;
+}

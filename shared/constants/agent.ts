@@ -27,15 +27,23 @@ export const API_PATHS = {
  */
 export const MAX_REQUEST_BYTES = 40 * 1024 * 1024
 
-/** Websites allowed to print when nothing has been configured yet. */
-export const DEFAULT_ALLOWED_ORIGINS: readonly string[] = ['https://trackvid.in', 'https://*.trackvid.in']
-
 /**
- * Added only in a development run (`!app.isPackaged`): the web app's Vite dev
- * server and preview. A packaged agent on a packing bench does not trust
- * whatever happens to be running on localhost.
+ * Websites that may print, always — there is no list to edit.
+ *
+ *   TrackVid itself, on its domain and every subdomain (https only), and
+ *   anything served from this computer on any port: the web app's dev server
+ *   (3000), its preview (8002), or wherever else it is run locally.
+ *
+ * The localhost entries mean any page a local program serves can print too.
+ * That is accepted: a program already running on this computer can reach the
+ * printers without the agent, so the agent adds nothing it could not do.
  */
-export const DEV_ALLOWED_ORIGINS: readonly string[] = ['http://localhost:3000', 'http://localhost:8002']
+export const ALLOWED_ORIGINS: readonly string[] = [
+  'https://trackvid.in',
+  'https://*.trackvid.in',
+  'http://localhost:*',
+  'http://127.0.0.1:*'
+]
 
 /** How many finished jobs the window keeps on screen. */
 export const JOB_HISTORY_LIMIT = 100

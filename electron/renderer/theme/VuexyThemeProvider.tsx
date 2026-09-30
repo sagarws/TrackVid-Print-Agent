@@ -31,6 +31,7 @@ import coreTheme from '@core/theme'
 
 // The Vercel re-dress, merged over the core theme. See vercelTheme.ts.
 import vercelTheme from './vercelTheme'
+import { BRAND_PRIMARY } from './brand'
 
 /** The dark scheme's accent when the operator's accent is ink — Geist's dark text. */
 const DARK_INK_ACCENT = '#EDEDED'
@@ -142,6 +143,23 @@ export const VuexyThemeProvider = ({
     }
 
     /*
+     * AGENT CHANGE: "info" is TrackVid teal, not the theme's blue. The agent
+     * carries no blue at all, and the Scan & Pack screens ported from the web
+     * app use info alerts and chips throughout. Fixed to the brand teal rather
+     * than to the operator's accent, so an info notice never reads as a button.
+     */
+    const infoOverride = {
+      palette: {
+        info: {
+          main: BRAND_PRIMARY,
+          light: lighten(BRAND_PRIMARY, 0.2),
+          dark: darken(BRAND_PRIMARY, 0.1),
+          contrastText: '#fff'
+        }
+      }
+    }
+
+    /*
      * THE DARK SCHEME INVERTS AN INK ACCENT.
      *
      * The shipped accent is a near-black, and on the dark scheme's black page
@@ -194,7 +212,10 @@ export const VuexyThemeProvider = ({
           vercelTheme(settings.skin as Skin, currentMode)
         ),
         {
-          colorSchemes: { light: primaryOverride, dark: darkPrimaryOverride },
+          colorSchemes: {
+            light: deepmerge(primaryOverride, infoOverride),
+            dark: deepmerge(darkPrimaryOverride, infoOverride)
+          },
           cssVariables: { colorSchemeSelector: 'data' },
           // The operator's typeface, over the stack Monitor's typography sets.
           typography: { fontFamily: FONT_STACK[settings.font ?? 'geist'] }

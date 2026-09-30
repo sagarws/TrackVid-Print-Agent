@@ -2,6 +2,9 @@ import { app, BrowserWindow, session } from 'electron'
 import { APP_ID } from '@shared/constants/agent'
 import { IPC } from '@shared/constants/channels'
 import { registerIpc, setOpenAtLogin } from './ipc'
+import { registerScanPackIpc } from './scanpack/ipc'
+import { startScanPackCleanup, stopScanPackCleanup } from './scanpack/retention'
+import { flushScanPack } from './scanpack/store'
 import { applyOpenAtLogin, launchedHidden } from './loginItem'
 import { logger } from './logger'
 import { setPrinterSource, startPrinterMonitor, stopPrinterMonitor } from './printers'
@@ -33,6 +36,7 @@ if (!app.requestSingleInstanceLock()) {
 
     applyContentSecurityPolicy()
     registerIpc()
+    registerScanPackIpc()
 
     const hidden = launchedHidden()
     if (hidden && process.platform === 'darwin') app.dock?.hide()
@@ -52,6 +56,8 @@ if (!app.requestSingleInstanceLock()) {
     app.once('will-quit', unsubscribe)
 
     startServer()
+    // Scan & Pack retention: drop weeks older than the Settings window, now and every 6 h.
+    startScanPackCleanup()
     startPrinterMonitor()
 
     app.on('activate', () => showWindow())
@@ -65,6 +71,9 @@ if (!app.requestSingleInstanceLock()) {
     markQuitting()
     logger.info('Shutting down')
     stopPrinterMonitor()
+    stopScanPackCleanup()
+    // Pending packed-status writes must reach disk before the process ends.
+    flushScanPack()
     void stopServer()
     destroyTray()
     BrowserWindow.getAllWindows().forEach(window => window.destroy())
@@ -73,14 +82,17 @@ if (!app.requestSingleInstanceLock()) {
 
 function applyContentSecurityPolicy(): void {
   const devServer = process.env['ELECTRON_RENDERER_URL']
-  const scriptSrc = devServer ? "'self' 'unsafe-inline'" : "'self'"
+  // 'wasm-unsafe-eval': the Scan & Pack barcode reader (zxing) is WebAssembly.
+  const scriptSrc = devServer ? "'self' 'unsafe-inline' 'wasm-unsafe-eval'" : "'self' 'wasm-unsafe-eval'"
+  const dev = devServer ? ` ${devServer}` : ''
 
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
         ...details.responseHeaders,
         'Content-Security-Policy': [
-          `default-src 'self'; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ${devServer ? `${devServer} ws:` : ''}; object-src 'none'; base-uri 'none'; form-action 'none'`
+          // worker-src: pdf.js (scanning and the label preview) runs in a worker.
+          `default-src 'self'; script-src ${scriptSrc}; worker-src 'self' blob:${dev}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' data: blob: ${devServer ? `${devServer} ws:` : ''}; object-src 'none'; base-uri 'none'; form-action 'none'`
         ]
       }
     })

@@ -52,3 +52,34 @@ describe('normaliseOrigin', () => {
     expect(normaliseOrigin('https://user@trackvid.in')).toBeNull()
   })
 })
+
+describe('port wildcard', () => {
+  const LOCAL = ['http://localhost:*', 'http://127.0.0.1:*']
+
+  it('accepts that host on any port, or none', () => {
+    expect(isOriginAllowed('http://localhost:3000', LOCAL)).toBe(true)
+    expect(isOriginAllowed('http://localhost:8002', LOCAL)).toBe(true)
+    expect(isOriginAllowed('http://localhost:5173', LOCAL)).toBe(true)
+    expect(isOriginAllowed('http://localhost', LOCAL)).toBe(true)
+    expect(isOriginAllowed('http://127.0.0.1:4000', LOCAL)).toBe(true)
+  })
+
+  it('does not stretch to another host or scheme', () => {
+    expect(isOriginAllowed('http://localhost.evil.com:3000', LOCAL)).toBe(false)
+    expect(isOriginAllowed('http://evil-localhost:3000', LOCAL)).toBe(false)
+    expect(isOriginAllowed('https://localhost:3000', LOCAL)).toBe(false)
+    expect(isOriginAllowed('http://192.168.1.5:3000', LOCAL)).toBe(false)
+  })
+})
+
+describe('the built-in list', () => {
+  it('lets TrackVid and local dev servers print, and nothing else', async () => {
+    const { ALLOWED_ORIGINS } = await import('@shared/constants/agent')
+    expect(isOriginAllowed('https://trackvid.in', ALLOWED_ORIGINS)).toBe(true)
+    expect(isOriginAllowed('https://app.trackvid.in', ALLOWED_ORIGINS)).toBe(true)
+    expect(isOriginAllowed('http://localhost:3000', ALLOWED_ORIGINS)).toBe(true)
+    expect(isOriginAllowed('http://127.0.0.1:8002', ALLOWED_ORIGINS)).toBe(true)
+    expect(isOriginAllowed('http://trackvid.in', ALLOWED_ORIGINS)).toBe(false)
+    expect(isOriginAllowed('https://evil.com', ALLOWED_ORIGINS)).toBe(false)
+  })
+})

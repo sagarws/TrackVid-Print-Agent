@@ -43,7 +43,15 @@ export const createWindow = (options: { show: boolean }): BrowserWindow => {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      webSecurity: true
+      webSecurity: true,
+      /*
+       * Keep timers running at full speed while the window is hidden, behind
+       * another app or minimised. The agent is a background app, and Chromium's
+       * default throttling (timers down to 1/s, then ~1/min) stretched a Scan &
+       * Pack upload from under a second to minutes whenever the packer switched
+       * to another window — pdf-lib and the upload queue both wait on timers.
+       */
+      backgroundThrottling: false
     }
   })
 

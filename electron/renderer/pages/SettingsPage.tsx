@@ -3,6 +3,7 @@ import { Alert, Box, ButtonBase, Stack, Switch, Typography } from '@mui/material
 import type { AgentState, Result, ThemeMode } from '@shared/types/agent'
 import { useSettings } from '@core/hooks/useSettings'
 import SectionCard from '../components/SectionCard'
+import ScanPackStorageCard from '../components/ScanPackStorageCard'
 import { platformLabel } from '../utils/format'
 
 const MODES: { id: ThemeMode; label: string; hint: string; icon: string }[] = [
@@ -29,7 +30,7 @@ const SettingsPage = ({ state }: { state: AgentState }) => {
   const { settings, updateSettings } = useSettings()
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const devRun = state.devOrigins.length > 0
+  const devRun = !state.packaged
 
   const toggle = async (action: () => Promise<Result>) => {
     setSaving(true)
@@ -140,7 +141,9 @@ const SettingsPage = ({ state }: { state: AgentState }) => {
       </SectionCard>
       {error && <Alert severity='error'>{error}</Alert>}
 
-      <SectionCard icon='tabler-info-circle' tone='info' title='About'>
+      <ScanPackStorageCard scanPack={state.scanPack} />
+
+      <SectionCard icon='tabler-info-circle' tone='primary' title='About'>
         <Stack spacing={1.5}>
           <Row title='Version' hint={`TrackVid Print Agent on ${platformLabel(state.platform)}`}>
             <Typography variant='body2'>{state.version}</Typography>

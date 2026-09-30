@@ -1,7 +1,6 @@
 import { ipcMain, shell, type IpcMainInvokeEvent } from 'electron'
 import { IPC } from '@shared/constants/channels'
 import type { AgentState, Result } from '@shared/types/agent'
-import { normaliseOrigin } from '@shared/utils/origin'
 import { cancelJob, releaseJob, reprintJob, submitJob } from './jobs'
 import { applyOpenAtLogin } from './loginItem'
 import { logger } from './logger'
@@ -134,16 +133,6 @@ export const registerIpc = (): void => {
     if (!fromRenderer(event)) return refused
     if (typeof enabled !== 'boolean') return { ok: false, error: 'Expected on or off.' }
     updateSettings({ notifications: enabled })
-    notify()
-    return { ok: true, value: undefined }
-  })
-
-  ipcMain.handle(IPC.setAllowedOrigins, (event, origins: unknown): Result => {
-    if (!fromRenderer(event)) return refused
-    if (!Array.isArray(origins)) return { ok: false, error: 'Expected a list of websites.' }
-    const invalid = origins.filter(entry => typeof entry !== 'string' || !normaliseOrigin(entry))
-    if (invalid.length) return { ok: false, error: `Not a website address: ${invalid.map(String).join(', ')}` }
-    updateSettings({ allowedOrigins: origins as string[] })
     notify()
     return { ok: true, value: undefined }
   })

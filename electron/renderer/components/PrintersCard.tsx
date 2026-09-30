@@ -5,11 +5,11 @@ import SectionCard from './SectionCard'
 import { formatShortTime, matches } from '../utils/format'
 
 type Feedback = { ok: boolean; message: string }
-type Tone = 'success' | 'info' | 'warning' | 'error' | 'secondary'
+type Tone = 'success' | 'primary' | 'warning' | 'error' | 'secondary'
 
 const STATE_UI: Record<PrinterState, { label: string; color: Tone; icon: string }> = {
   ready: { label: 'Ready', color: 'success', icon: 'tabler-circle-check' },
-  printing: { label: 'Printing', color: 'info', icon: 'tabler-loader-2 animate-spin' },
+  printing: { label: 'Printing', color: 'primary', icon: 'tabler-loader-2 animate-spin' },
   paused: { label: 'Paused', color: 'warning', icon: 'tabler-player-pause' },
   offline: { label: 'Offline', color: 'error', icon: 'tabler-wifi-off' },
   error: { label: 'Needs attention', color: 'error', icon: 'tabler-alert-triangle' },
@@ -26,7 +26,7 @@ const CONNECTION_UI: Record<PrinterConnection, { label: string; icon: string }> 
 const QUEUE_UI: Record<QueueJobState, { label: string; color: Tone }> = {
   pending: { label: 'Waiting', color: 'secondary' },
   held: { label: 'Held', color: 'warning' },
-  printing: { label: 'Printing', color: 'info' },
+  printing: { label: 'Printing', color: 'primary' },
   stopped: { label: 'Stopped', color: 'error' },
   cancelled: { label: 'Cancelled', color: 'secondary' },
   aborted: { label: 'Failed', color: 'error' },

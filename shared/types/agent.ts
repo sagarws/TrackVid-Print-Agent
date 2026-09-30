@@ -1,3 +1,5 @@
+import type { ScanPackSettingsState } from './scanpack'
+
 /**
  * What a printer is doing, as one word. Worked out from the OS queue (paused?
  * accepting jobs?) and, where it can be reached, from the device itself.
@@ -145,9 +147,10 @@ export interface AgentState {
   printersError?: string
   /** When the printer list was last read from the OS (ISO), null before the first read. */
   printersCheckedAt: string | null
-  allowedOrigins: string[]
-  /** The dev-only origins, shown read-only so it is clear why they work. */
-  devOrigins: string[]
+  /** False in an `npm run dev` run: start-at-login is only offered when installed. */
+  packaged: boolean
+  /** Scan & Pack storage: folder in use, weeks kept, last cleanup. */
+  scanPack: ScanPackSettingsState
   openAtLogin: boolean
   themeMode: ThemeMode
   /** Refuse jobs for a printer that is offline / paused instead of queueing them. */

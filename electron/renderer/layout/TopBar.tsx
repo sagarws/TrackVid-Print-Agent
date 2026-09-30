@@ -63,7 +63,7 @@ const TopBar = ({ query, onQueryChange, jobs, onOpenSettings }: Props) => {
     >
       <TextField
         size='small'
-        placeholder='Search printers, websites, jobs…'
+        placeholder='Search printers and jobs…'
         value={query}
         onChange={event => onQueryChange(event.target.value)}
         sx={{ width: 320, '& .MuiOutlinedInput-root': { bgcolor: 'action.hover', borderRadius: 2 } }}

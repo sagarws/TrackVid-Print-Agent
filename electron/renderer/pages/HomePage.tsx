@@ -2,7 +2,6 @@ import { Box, Paper, Stack, Typography } from '@mui/material'
 import type { AgentState } from '@shared/types/agent'
 import StatusCard from '../components/StatusCard'
 import PrintersCard from '../components/PrintersCard'
-import WebsitesCard from '../components/WebsitesCard'
 import JobsCard from '../components/JobsCard'
 import { formatTime } from '../utils/format'
 
@@ -24,7 +23,7 @@ const HomePage = ({ state, query }: { state: AgentState; query: string }) => {
             placeItems: 'center',
             bgcolor: 'primary.main',
             color: 'primary.contrastText',
-            boxShadow: '0 10px 24px -10px rgb(37 99 235 / 0.8)'
+            boxShadow: '0 10px 24px -10px rgb(var(--mui-palette-primary-mainChannel) / 0.8)'
           }}
         >
           <i className='tabler-printer' style={{ fontSize: 32 }} />
@@ -70,10 +69,11 @@ const HomePage = ({ state, query }: { state: AgentState; query: string }) => {
         </Paper>
       </Stack>
 
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'repeat(2, minmax(0, 1fr))' }, gap: 4 }}>
-        <StatusCard state={state} />
+      <StatusCard state={state} />
+
+      {/* Printers and jobs side by side, always — one row at every window width. */}
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 4, alignItems: 'stretch' }}>
         <PrintersCard printers={state.printers} error={state.printersError} query={query} />
-        <WebsitesCard allowed={state.allowedOrigins} devOrigins={state.devOrigins} query={query} />
         <JobsCard jobs={state.jobs} query={query} />
       </Box>
     </Stack>
