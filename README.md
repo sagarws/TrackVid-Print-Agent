@@ -79,6 +79,25 @@ are mirrored in TrackVid-FE `src/config/constant.ts` (`PRINT_AGENT_*`).
   (including other apps'), Clear the queue, Reprint recent jobs. Desktop notifications when a
   printer in use goes offline, runs out of paper, or a job fails.
 
+## Login
+
+The window opens on a login page; only a signed-in TrackVid user gets the app. It is the web
+admin's login (TrackVid-FE), against the same backend:
+
+- **Backend:** `VITE_APP_BASE_URL` in `.env` (see `.env.example`), the same variable as the web
+  admin. It is read at **build time** — a production build needs the production URL there. It
+  is also allowed in the window's Content-Security-Policy.
+- **Login:** `POST /api/auth/login` `{ email, password }` → `{ accessToken, user }`, kept in
+  `localStorage` under `user-token` / `user-details`, as the web admin keeps it.
+- **One API client** (`electron/renderer/api/axios.ts`): Bearer token on every call, the server's
+  `displayMessage` as the error, and **any 401 ends the session** — back to the login page with
+  "Your session has expired".
+- **Expiry:** a stored session is checked with `GET /api/user/get-user` at start, and the app
+  also logs out when the token's own `exp` passes. Log out (user menu) calls `/api/auth/logout`
+  so the token stops working on the server too.
+- The local print service (`127.0.0.1:17865`) keeps running while logged out: the web admin's
+  printing goes through it, and it has its own allowed-websites check.
+
 ## Scan & Pack (in the app)
 
 The web admin's Scan & Pack flow, ported into the app under **Scan and Pack** in the sidebar:

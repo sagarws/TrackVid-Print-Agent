@@ -36,6 +36,9 @@ const api = {
   releaseJob: (id: string): Promise<Result> => ipcRenderer.invoke(IPC.releaseJob, id),
   reprintJob: (id: string): Promise<Result> => ipcRenderer.invoke(IPC.reprintJob, id),
   openPrinterSettings: (): Promise<Result> => ipcRenderer.invoke(IPC.openPrinterSettings),
+  /** Write a line to the terminal and agent.log. One-way, never waits. */
+  log: (level: 'info' | 'warn' | 'error', scope: string, message: string): void =>
+    ipcRenderer.send(IPC.log, level, scope, message),
 
   /** Scan & Pack's local backend — see electron/main/scanpack. */
   scanPack: {

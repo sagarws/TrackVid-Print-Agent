@@ -39,6 +39,7 @@
     "@mui/material": "7.3.6",
     "@mui/utils": "7.3.6",
     "@mui/x-data-grid": "8.29.3",
+    "axios": "1.19.0",
     "date-fns": "3.6.0",
     "pdf-lib": "1.17.1",
     "pdf-to-printer": "5.8.1",

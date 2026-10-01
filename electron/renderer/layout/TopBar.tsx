@@ -16,7 +16,8 @@ import {
   Typography
 } from '@mui/material'
 import type { PrintJob } from '@shared/types/agent'
-import { USER } from '../theme/brand'
+import { useAuth } from '../auth/AuthProvider'
+import { userDisplayName } from '../auth/session'
 import { formatShortTime } from '../utils/format'
 
 interface Props {
@@ -31,6 +32,15 @@ interface Props {
  * runs for whoever is at this computer, shown as "Trackvid User".
  */
 const TopBar = ({ query, onQueryChange, jobs, onOpenSettings }: Props) => {
+  const { user, logout } = useAuth()
+  const displayName = userDisplayName(user)
+  const initials =
+    displayName
+      .split(/[\s@._-]+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map(part => part[0]?.toUpperCase() ?? '')
+      .join('') || 'TU'
   const [bellAnchor, setBellAnchor] = useState<HTMLElement | null>(null)
   const [userAnchor, setUserAnchor] = useState<HTMLElement | null>(null)
   // Failures the operator has not opened the bell on yet.
@@ -140,10 +150,10 @@ const TopBar = ({ query, onQueryChange, jobs, onOpenSettings }: Props) => {
         aria-label='User menu'
       >
         <Avatar sx={{ width: 34, height: 34, fontSize: 13, fontWeight: 600, bgcolor: 'primary.main', color: '#fff' }}>
-          {USER.initials}
+          {initials}
         </Avatar>
         <Typography variant='body2' sx={{ fontWeight: 600 }}>
-          {USER.name}
+          {displayName}
         </Typography>
         <i className='tabler-chevron-down' style={{ fontSize: 16 }} />
       </ButtonBase>
@@ -156,10 +166,10 @@ const TopBar = ({ query, onQueryChange, jobs, onOpenSettings }: Props) => {
       >
         <Box sx={{ px: 3, py: 1.5 }}>
           <Typography variant='body2' sx={{ fontWeight: 600 }}>
-            {USER.name}
+            {displayName}
           </Typography>
           <Typography variant='caption' color='text.secondary'>
-            This computer · no sign-in needed
+            {user?.email ?? ''}
           </Typography>
         </Box>
         <Divider />
@@ -173,6 +183,17 @@ const TopBar = ({ query, onQueryChange, jobs, onOpenSettings }: Props) => {
             <i className='tabler-settings' style={{ fontSize: 18 }} />
           </ListItemIcon>
           Settings
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            setUserAnchor(null)
+            void logout()
+          }}
+        >
+          <ListItemIcon>
+            <i className='tabler-logout' style={{ fontSize: 18 }} />
+          </ListItemIcon>
+          Log out
         </MenuItem>
       </Menu>
     </Box>

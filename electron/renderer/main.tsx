@@ -6,7 +6,20 @@ import type { AgentState } from '@shared/types/agent'
 import { VuexyThemeProvider } from './theme/VuexyThemeProvider'
 import { BRAND_PRIMARY } from './theme/brand'
 import App from './App'
+import { AuthProvider, useAuth } from './auth/AuthProvider'
+import LoginPage from './pages/LoginPage'
+import ErrorBoundary from './components/ErrorBoundary'
+import { appLog } from './utils/appLog'
 import './styles/app.css'
+
+// Anything thrown outside React's render (event handlers, timers, promises).
+window.addEventListener('error', event => {
+  appLog('error', 'uncaught', `${event.message} at ${event.filename}:${event.lineno}:${event.colno}\n${(event.error as Error | undefined)?.stack ?? ''}`)
+})
+window.addEventListener('unhandledrejection', event => {
+  const reason = event.reason as unknown
+  appLog('error', 'unhandled-promise', reason instanceof Error ? `${reason.message}\n${reason.stack ?? ''}` : String(reason))
+})
 
 const container = document.getElementById('root')
 if (!container) throw new Error('Root container #root is missing from index.html')
@@ -60,6 +73,19 @@ const Root = () => {
   return <Themed state={load.state} />
 }
 
+/** Login page, a spinner while a stored session is checked, or the app. */
+const AuthGate = ({ state }: { state: AgentState }) => {
+  const { status } = useAuth()
+  if (status === 'checking') {
+    return (
+      <Box sx={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <CircularProgress size={28} />
+      </Box>
+    )
+  }
+  return status === 'signed-in' ? <App state={state} /> : <LoginPage />
+}
+
 /**
  * Mounted once the state is known. The saved mode seeds the theme on mount
  * only; after that the theme owns it and every change is written back.
@@ -73,7 +99,12 @@ const Themed = ({ state }: { state: AgentState }) => {
   return (
     <SettingsProvider storedSettings={stored} onPersist={persist}>
       <VuexyThemeProvider systemMode={systemMode}>
-        <App state={state} />
+        {/* Login gate: the app only for a signed-in TrackVid user. */}
+        <ErrorBoundary>
+          <AuthProvider>
+            <AuthGate state={state} />
+          </AuthProvider>
+        </ErrorBoundary>
       </VuexyThemeProvider>
     </SettingsProvider>
   )

@@ -44,6 +44,17 @@ export const setOpenAtLogin = (enabled: boolean): void => {
 }
 
 export const registerIpc = (): void => {
+  // Log lines from the window: API calls, render crashes, uncaught errors.
+  ipcMain.on(IPC.log, (event, level: unknown, scope: unknown, message: unknown) => {
+    if (!isRendererUrl(event.senderFrame?.url ?? '')) return
+    const text = `[window:${String(scope).slice(0, 40)}] ${String(message).slice(0, 4000)}`
+    // stdout too, so it shows in the terminal running the app (npm run dev).
+    process.stdout.write(`${text}\n`)
+    if (level === 'error') logger.error(text)
+    else if (level === 'warn') logger.warn(text)
+    else logger.info(text)
+  })
+
   ipcMain.handle(IPC.getState, (event): AgentState | null => (fromRenderer(event) ? snapshot() : null))
 
   ipcMain.handle(IPC.refreshPrinters, async (event): Promise<Result> => {

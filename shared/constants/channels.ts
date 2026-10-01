@@ -15,7 +15,9 @@ export const IPC = {
   cancelJob: 'agent:cancel-job',
   releaseJob: 'agent:release-job',
   reprintJob: 'agent:reprint-job',
-  openPrinterSettings: 'agent:open-printer-settings'
+  openPrinterSettings: 'agent:open-printer-settings',
+  /** One-way: a log line from the window (API calls, crashes) for the terminal and agent.log. */
+  log: 'agent:log'
 } as const
 
 /** Scan & Pack: the local stand-in for TrackVid-BE's /packlog API. */

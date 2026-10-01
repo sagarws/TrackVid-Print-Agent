@@ -62,6 +62,18 @@ export const createWindow = (options: { show: boolean }): BrowserWindow => {
     return { action: 'deny' }
   })
 
+  // Window-process failures, so a blank window leaves a trace in agent.log.
+  window.webContents.on('render-process-gone', (_event, details) => {
+    logger.error('[window] renderer process gone', details)
+  })
+  window.webContents.on('did-fail-load', (_event, code, description, url) => {
+    logger.error('[window] failed to load', { code, description, url })
+  })
+  window.webContents.on('preload-error', (_event, path, error) => {
+    logger.error(`[window] preload failed: ${path}`, error)
+  })
+  window.on('unresponsive', () => logger.warn('[window] not responding'))
+
   window.webContents.on('will-navigate', (event, url) => {
     if (!isRendererUrl(url)) {
       event.preventDefault()

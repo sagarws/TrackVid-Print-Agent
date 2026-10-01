@@ -93,6 +93,8 @@ function applyContentSecurityPolicy(): void {
   // 'wasm-unsafe-eval': the Scan & Pack barcode reader (zxing) is WebAssembly.
   const scriptSrc = devServer ? "'self' 'unsafe-inline' 'wasm-unsafe-eval'" : "'self' 'wasm-unsafe-eval'"
   const dev = devServer ? ` ${devServer}` : ''
+  // The TrackVid backend the login and API calls go to (VITE_APP_BASE_URL).
+  const api = apiOrigin()
 
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
@@ -100,9 +102,18 @@ function applyContentSecurityPolicy(): void {
         ...details.responseHeaders,
         'Content-Security-Policy': [
           // worker-src: pdf.js (scanning and the label preview) runs in a worker.
-          `default-src 'self'; script-src ${scriptSrc}; worker-src 'self' blob:${dev}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' data: blob: ${devServer ? `${devServer} ws:` : ''}; object-src 'none'; base-uri 'none'; form-action 'none'`
+          `default-src 'self'; script-src ${scriptSrc}; worker-src 'self' blob:${dev}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' data: blob:${api ? ` ${api}` : ''} ${devServer ? `${devServer} ws:` : ''}; object-src 'none'; base-uri 'none'; form-action 'none'`
         ]
       }
     })
   })
+}
+
+/** Origin of VITE_APP_BASE_URL (e.g. https://api.trackvid.in), or '' if unset / invalid. */
+function apiOrigin(): string {
+  try {
+    return new URL(import.meta.env.VITE_APP_BASE_URL ?? 'http://localhost:8000').origin
+  } catch {
+    return ''
+  }
 }
