@@ -110,10 +110,12 @@ const UploadSessionModal = ({ open, onClose, onCreated }: Props) => {
   const downloadTemplate = () => {
     const headers = [
       "OMS SKU",
-      "Listing SKU",
+      // AGENT CHANGE: "Listing SKU" → "SKU", "Forward AWB" → "Awb Number".
+      // Sheets with the old names are still read (sheet.ts, pack page).
+      "SKU",
       "Listing ID",
       "Quantity",
-      "Forward AWB",
+      "Awb Number",
       "Shipping Label",
       "Invoice",
     ];
@@ -277,7 +279,7 @@ const UploadSessionModal = ({ open, onClose, onCreated }: Props) => {
       totals.add("read order sheet", sheetMs);
       if (!sheet.rows.length) throw new Error("The order list has no data rows.");
       if (!sheet.awbHeader) {
-        throw new Error('No "Forward AWB" column was found in the order list.');
+        throw new Error('No "Awb Number" column was found in the order list.');
       }
 
       const batchId = generateBatchId();
@@ -417,7 +419,7 @@ const UploadSessionModal = ({ open, onClose, onCreated }: Props) => {
       onClose={handleClose}
       busy={busy}
       title="Upload Packlog files"
-      subtitle="Order list + label/invoice PDFs — matched by Forward AWB"
+      subtitle="Order list + label/invoice PDFs — matched by AWB Number"
       icon={<CloudUploadOutlined />}
       footer={
         <>
@@ -478,7 +480,7 @@ const UploadSessionModal = ({ open, onClose, onCreated }: Props) => {
           files={sheetFiles}
           onChange={setSheetFiles}
           disabled={busy}
-          hint="CSV or XLSX with OMS SKU, Listing SKU, Listing ID, Quantity, Forward AWB, Shipping Label, Invoice"
+          hint="CSV or XLSX with OMS SKU, SKU, Listing ID, Quantity, Awb Number, Shipping Label, Invoice"
         />
         <Stack direction="row" alignItems="center" spacing={1} sx={{ pl: 0.25 }}>
           <Typography sx={{ fontSize: 11, color: "text.secondary" }}>

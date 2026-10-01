@@ -13,13 +13,17 @@ import * as XLSX from "xlsx";
 import type { SheetRow } from "../../types/scanAndPack.types";
 import { normaliseAwb } from "./platforms";
 
-/** Column names, in priority order, that can carry the forward AWB. */
+/**
+ * Column names, in priority order, that can carry the forward AWB. The
+ * template's own name ("Awb Number") comes first; older sheets used
+ * "Forward AWB", still accepted.
+ */
 const AWB_HEADER_CANDIDATES = [
+  "awb number",
   "forward awb",
   "forwardawb",
   "awb",
   "awb no",
-  "awb number",
   "tracking id",
   "tracking number",
 ];

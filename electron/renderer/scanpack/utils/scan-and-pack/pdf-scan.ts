@@ -119,9 +119,13 @@ const decodeAwbFromPage = async (
         timing.totals?.add("scan: decode barcode", decodeMs);
       }
 
-      for (const result of results) {
-        const awb = platform.awbFromBarcode(result.text ?? "");
-        if (awb) return normaliseAwb(awb);
+      // AGENT CHANGE: collect every acceptable barcode, then let the platform
+      // pick (Flipkart: the `FM…` id over the courier's AWB) — not just the first.
+      const candidates = results
+        .map((result) => platform.awbFromBarcode(result.text ?? ""))
+        .filter((value): value is string => Boolean(value));
+      if (candidates.length) {
+        return normaliseAwb(platform.preferAwb ? platform.preferAwb(candidates) : candidates[0]);
       }
     } catch (error) {
       // One page that will not rasterise (missing font data, corrupt XObject)

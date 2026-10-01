@@ -156,7 +156,8 @@ const ScanAndPackPack = () => {
   );
 
   const listingSkuHeader = useMemo(
-    () => (batch ? findHeader(batch.headers, ["listing sku", "listing skus"]) : null),
+    // AGENT CHANGE: the template's "SKU" column first, "Listing SKU" for older sheets.
+    () => (batch ? findHeader(batch.headers, ["sku", "skus", "listing sku", "listing skus"]) : null),
     [batch]
   );
   const listingIdHeader = useMemo(
@@ -185,6 +186,16 @@ const ScanAndPackPack = () => {
   /**
    * Resolve a typed or scanned string to an order and select it.
    *
+   * One SKU / listing ID (and occasionally an AWB) can sit on several rows of
+   * the same packlog. A scan only ever takes a Ready to pack row: the first
+   * one, in sheet order, whose AWB, SKU or Listing ID matches — so each scan
+   * of the same barcode packs the next parcel in the queue.
+   *
+   * When no Ready to pack row matches but a Packed one does, the scan is
+   * refused rather than reprinted: a scan means "pack the next one", and
+   * silently reprinting an already-packed parcel would ship a duplicate. The
+   * table's Reprint button is the deliberate way to print it again.
+   *
    * Returns the matched order so a scan can print it immediately — reading it
    * back out of `selected` would race, since that setState has not committed
    * by the time the handler continues.
@@ -194,30 +205,30 @@ const ScanAndPackPack = () => {
     const needle = normaliseAwb(value);
     if (!needle) return null;
 
-    const awbHit = options.find((order) => order.awb === needle);
-    if (awbHit) {
-      setSelected(awbHit);
-      return awbHit;
+    const matches = (order: ScanPackOrder) =>
+      order.awb === needle ||
+      Boolean(listingSkuHeader && matchesColumn(order, listingSkuHeader, needle)) ||
+      Boolean(listingIdHeader && matchesColumn(order, listingIdHeader, needle));
+    const inSheetOrder = options.slice().sort((a, b) => a.rowIndex - b.rowIndex);
+
+    const hit = inSheetOrder.find((order) => order.packStatus !== "packed" && matches(order));
+    if (hit) {
+      setSelected(hit);
+      return hit;
     }
 
-    let columnHit: ScanPackOrder | null = null;
-    const tryColumn = (header: string | null, label: string): boolean => {
-      if (!header) return false;
-      const hits = options.filter((order) => matchesColumn(order, header, needle));
-      const [hit] = hits;
-      if (hits.length === 1 && hit) {
-        setSelected(hit);
-        columnHit = hit;
-        return true;
-      }
-      if (hits.length > 1) {
-        toast.error(`"${value}" matches ${hits.length} mapped orders by ${label} — scan the AWB to disambiguate.`);
-        return true;
-      }
-      return false;
-    };
-    if (tryColumn(listingSkuHeader, "Listing SKU")) return columnHit;
-    if (tryColumn(listingIdHeader, "Listing ID")) return columnHit;
+    if (inSheetOrder.some((order) => order.packStatus === "packed" && matches(order))) {
+      const part =
+        batch.scanMode === "label"
+          ? SCANPACK_PART_LABELS.label
+          : batch.scanMode === "invoice"
+          ? SCANPACK_PART_LABELS.invoice
+          : `${SCANPACK_PART_LABELS.label} & ${SCANPACK_PART_LABELS.invoice}`;
+      toast.error(
+        `${part} for "${value}" is already packed. To print it again, click Reprint in the table.`
+      );
+      return null;
+    }
 
     const anyMatch = batch.orders.find(
       (order) =>
@@ -399,12 +410,10 @@ const ScanAndPackPack = () => {
         await maybeCopyAwbOnPrint(order);
         const outcome = await dispatchPrint(batch.id, order, part);
         if (!aliveRef.current) return;
-        const wasPacked = order.packStatus === "packed";
         if (outcome.viaAgent) {
-          // Auto Download saves again rather than reprinting; say what happened.
-          toast.success(
-            wasPacked && readOutputMode() !== "download" ? `Reprinted ${order.awbRaw || order.awb}.` : outcome.message
-          );
+          // resolveTyped only hands back Ready to pack orders, so this is always
+          // a first print — reprints go through the table's Reprint button.
+          toast.success(outcome.message);
           await markOrderPacked(order);
         } else {
           warnUnconfirmedPrint(outcome.message);
@@ -579,7 +588,7 @@ const ScanAndPackPack = () => {
     () => [
       {
         field: "awb",
-        headerName: "Forward AWB",
+        headerName: "AWB Number",
         flex: 1,
         minWidth: 170,
         renderCell: (params) => (
@@ -591,7 +600,7 @@ const ScanAndPackPack = () => {
         ),
       },
       ...(listingSkuHeader
-        ? [{ field: "sku", headerName: "Listing SKU", flex: 1, minWidth: 150 } as GridColDef]
+        ? [{ field: "sku", headerName: "SKU", flex: 1, minWidth: 150 } as GridColDef]
         : []),
       ...(listingIdHeader
         ? [{ field: "listingId", headerName: "Listing ID", flex: 1, minWidth: 150 } as GridColDef]
@@ -819,7 +828,7 @@ const ScanAndPackPack = () => {
             placeholder={
               secondaryFields.length
                 ? `Scan the barcode or type the AWB, ${secondaryFields.map((f) => `Listing ${f.label}`).join(" or ")}`
-                : "Scan the barcode or type the forward AWB"
+                : "Scan the barcode or type the AWB number"
             }
             value={awbInput}
             onChange={(event) => setAwbInput(event.target.value)}

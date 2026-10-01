@@ -247,7 +247,7 @@ const ScanAndPack = () => {
             Upload Packlog files
           </Typography>
           <Typography sx={{ fontSize: 12, color: "text.secondary", mt: 0.25 }}>
-            Each packlog pairs an order list with its label &amp; invoice PDFs and maps them by Forward AWB.
+            Each packlog pairs an order list with its label &amp; invoice PDFs and maps them by AWB Number.
           </Typography>
         </Box>
 

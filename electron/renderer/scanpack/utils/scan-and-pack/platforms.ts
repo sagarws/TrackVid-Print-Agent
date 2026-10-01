@@ -26,6 +26,11 @@ export interface PlatformConfig {
   awbFromText: (text: string) => string | null;
   /** Accept/reject a decoded barcode payload as an AWB. */
   awbFromBarcode: (value: string) => string | null;
+  /**
+   * AGENT: when a page's barcodes yield more than one acceptable AWB, which to
+   * use. Without it the first decoded wins, which is arbitrary.
+   */
+  preferAwb?: (candidates: string[]) => string;
   /** ZXing formats worth trying on a rasterised label page. */
   barcodeFormats: string[];
   /**
@@ -178,10 +183,24 @@ const FLIPKART: PlatformConfig = {
   enabled: true,
   isLabelPage: (text) =>
     !INVOICE_MARKERS.test(text) && /flipkart|e-?kart|AWB\s*No\.?/i.test(text),
+  // AGENT CHANGE — the horizontal `FM…` number, not the vertical "AWB No.".
+  //
+  // Every Flipkart label prints two numbers: the vertical "AWB No. …" beside
+  // the left barcode, and a horizontal `FM…` (FMPP / FMPC …) above the bottom
+  // barcode. The `FM…` one is Flipkart's tracking id — the Forward AWB in the
+  // order sheet. On most labels the two are the same, but when the courier is
+  // not E-Kart the vertical one is the courier's own number
+  // (`SF3461177624F`, `1344861868343`) and no sheet row matches it. So the
+  // `FM…` token is read first; "AWB No." is only a fallback for a label that
+  // has none.
   awbFromText: (text) => {
+    const fm = /\b(FM[A-Z]{2,4}\d{6,16})\b/.exec(text.toUpperCase());
+    if (fm?.[1]) return fm[1];
     const m = /\bAWB\s*No\.?\s*[:#-]?\s*([A-Z0-9]{10,20})\b/i.exec(text);
     return m?.[1] ? m[1].toUpperCase() : null;
   },
+  // The bottom barcode carries the `FM…` id, the left one the courier's AWB.
+  preferAwb: (candidates) => candidates.find((value) => value.startsWith("FM")) ?? candidates[0]!,
   awbFromBarcode: (value) => {
     const v = value.trim().toUpperCase();
     if (/^[0-9]{10,15}$/.test(v)) return v;
