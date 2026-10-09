@@ -1,7 +1,7 @@
 {
   "name": "trackvid-print-agent",
   "productName": "TrackVid Print Agent",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local print agent: lets the TrackVid web app print PDFs silently to a named printer on this machine.",
   "license": "UNLICENSED",
   "author": "TrackVid",
