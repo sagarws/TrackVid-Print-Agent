@@ -10,6 +10,7 @@ import {
 import type { GridColDef } from "@mui/x-data-grid";
 import {
   ArrowBack,
+  FileDownloadOutlined,
   PublishedWithChangesOutlined,
   QrCodeScannerOutlined,
   Search,
@@ -19,6 +20,7 @@ import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } f
 import { useNavigate, useParams } from "react-router-dom";
 import { format } from "date-fns";
 import toast from "react-hot-toast";
+import * as XLSX from "xlsx";
 import { Page } from "./Page";
 import DataTable from "../components/common/DataTable";
 import ButtonElement from "../components/common/Button";
@@ -56,6 +58,64 @@ const STATUS_TABS: { key: StatusFilter; label: string }[] = [
   { key: "ready", label: "Ready to pack" },
   { key: "packed", label: "Packed" },
 ];
+
+// The uploaded sheet almost always carries "Shipping Label", "Invoice" and
+// "Platform" columns that either duplicate our own status (Label/Invoice) or are
+// already implied by the batch (Platform). The grid and the export both hide them.
+const HIDDEN_HEADER_RE = /^(shipping\s*label|invoice|platform)$/i;
+const isVisibleHeader = (header: string) =>
+  !HIDDEN_HEADER_RE.test(header.replace(/[\s_]+/g, " ").trim());
+
+const matchesStatus = (order: ScanPackBatch["orders"][number], status: StatusFilter) => {
+  if (status === "mapped") return Boolean(order.mapping);
+  if (status === "unmapped") return !order.mapping;
+  // Anything not literally "packed" is ready, as the Pack Status column shows it.
+  if (status === "ready") return order.packStatus !== "packed";
+  if (status === "packed") return order.packStatus === "packed";
+  return true;
+};
+
+const EXPORT_SHEET_COLUMNS = [
+  "Order Number",
+  "Suborder Number",
+  "Invoice Number",
+  "Order Date",
+  "OMS SKU",
+  "SKU",
+  "Listing ID",
+  "Quantity",
+  "Awb Number",
+];
+
+const normalizeHeader = (header: string) => header.replace(/[\s_]+/g, "").toLowerCase();
+
+/** One sheet per status tab, each holding exactly the rows that tab shows. */
+const exportBatchXlsx = (batch: ScanPackBatch) => {
+  // Uploaded sheets vary in casing and spacing ("AWB number", "Listing_ID"), so
+  // each export column is resolved to whatever the sheet actually called it.
+  const sourceHeaders = EXPORT_SHEET_COLUMNS.map((column) =>
+    batch.headers.find((header) => normalizeHeader(header) === normalizeHeader(column))
+  );
+  // The sheet's own Shipping Label / Invoice columns are placeholders; the
+  // export reports whether that part is actually mapped.
+  const columns = [...EXPORT_SHEET_COLUMNS, "Shipping Label", "Invoice"];
+  const ordered = batch.orders.slice().sort((a, b) => a.rowIndex - b.rowIndex);
+
+  const workbook = XLSX.utils.book_new();
+  for (const tab of STATUS_TABS) {
+    const data = ordered
+      .filter((order) => matchesStatus(order, tab.key))
+      .map((order) => [
+        ...sourceHeaders.map((header) => (header ? order.raw[header] ?? "" : "")),
+        order.mapping?.labelPages.length ? "Yes" : "No",
+        order.mapping?.invoicePages.length ? "Yes" : "No",
+      ]);
+    const sheet = XLSX.utils.aoa_to_sheet([columns, ...data]);
+    sheet["!cols"] = columns.map((column) => ({ wch: Math.max(14, column.length + 2) }));
+    XLSX.utils.book_append_sheet(workbook, sheet, tab.label);
+  }
+  XLSX.writeFile(workbook, `${batch.batchId}.xlsx`);
+};
 
 const ScanAndPackBatch = () => {
   const { batchId = "" } = useParams();
@@ -123,11 +183,7 @@ const ScanAndPackBatch = () => {
     const needle = search.trim().toLowerCase();
     return batch.orders
       .filter((order) => {
-        if (status === "mapped" && !order.mapping) return false;
-        if (status === "unmapped" && order.mapping) return false;
-        // Anything not literally "packed" is ready, as the Pack Status column shows it.
-        if (status === "ready" && order.packStatus === "packed") return false;
-        if (status === "packed" && order.packStatus !== "packed") return false;
+        if (!matchesStatus(order, status)) return false;
         if (!needle) return true;
         // Search across every sheet column so an operator can look up a row by
         // SKU or listing id, not only by AWB.
@@ -226,13 +282,8 @@ const ScanAndPackBatch = () => {
 
   const columns: GridColDef[] = useMemo(() => {
     if (!batch) return [];
-    // The uploaded sheet almost always carries "Shipping Label", "Invoice" and
-    // "Platform" columns that either duplicate our own status (Label/Invoice)
-    // or are already implied by the batch (Platform). Hide all three so the
-    // grid stays focused on what the operator actually needs to see.
-    const hiddenRe = /^(shipping\s*label|invoice|platform)$/i;
     const sheetColumns: GridColDef[] = batch.headers
-      .filter((header) => !hiddenRe.test(header.replace(/[\s_]+/g, " ").trim()))
+      .filter(isVisibleHeader)
       .map((header) => ({
         field: header,
         headerName: header,
@@ -445,6 +496,32 @@ const ScanAndPackBatch = () => {
           </Stack>
 
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+            <ButtonElement
+              type="button"
+              variant="outlined"
+              size="small"
+              onClick={() => {
+                try {
+                  exportBatchXlsx(batch);
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : "Could not export this packlog.");
+                }
+              }}
+              disabled={batch.orders.length === 0}
+              startIcon={<FileDownloadOutlined sx={{ fontSize: 14 }} />}
+              sx={{
+                color: "primary.main",
+                textTransform: "none",
+                fontSize: 12.5,
+                fontWeight: 600,
+                height: 32,
+                px: 1.75,
+                whiteSpace: "nowrap",
+                "& .MuiButton-startIcon": { mr: 0.5 },
+              }}
+            >
+              Export
+            </ButtonElement>
             <ButtonElement
               type="button"
               variant="outlined"
