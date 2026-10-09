@@ -1,6 +1,11 @@
-import { Box, Chip, Typography } from "@mui/material";
+import { Box, Chip, CircularProgress, Typography } from "@mui/material";
 import { GridActionsCellItem, type GridColDef } from "@mui/x-data-grid";
-import { DeleteOutline, UploadFileOutlined, VisibilityOutlined } from "@mui/icons-material";
+import {
+  DeleteOutline,
+  FileDownloadOutlined,
+  UploadFileOutlined,
+  VisibilityOutlined,
+} from "@mui/icons-material";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
@@ -11,7 +16,8 @@ import ButtonElement from "../components/common/Button";
 import UploadSessionModal from "../components/ScanAndPack/UploadSessionModal";
 import ConfirmationDialog from "../components/common/ConfirmationDialog";
 import { getPlatform } from "../utils/scan-and-pack/platforms";
-import { PacklogService } from "../api/packlog-service";
+import { PacklogService, adaptPacklogDetail } from "../api/packlog-service";
+import { exportBatchXlsx } from "../utils/scan-and-pack/export";
 import { SCANPACK_PART_LABELS } from "../config/constant";
 import type { ScanMode } from "../types/scanAndPack.types";
 
@@ -35,6 +41,8 @@ const ScanAndPack = () => {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<BatchRow | null>(null);
   const [deleting, setDeleting] = useState(false);
+  /** Packlog currently being exported, so only that row shows a spinner. */
+  const [exportingId, setExportingId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
 
@@ -113,6 +121,26 @@ const ScanAndPack = () => {
       setDeleting(false);
     }
   };
+
+  // The list row only carries counts, so the export pulls the full packlog
+  // (orders + mappings) the same way its detail page does.
+  const handleExport = useCallback(async (row: BatchRow) => {
+    setExportingId(row.id);
+    try {
+      const response = await PacklogService.getPacklog(row.id);
+      const envelope = (
+        response as unknown as { data?: { data?: { packlog: unknown; orders: unknown[] } } }
+      )?.data?.data;
+      if (!envelope?.packlog) throw new Error("This packlog no longer exists.");
+      exportBatchXlsx(adaptPacklogDetail(envelope as any));
+    } catch (error) {
+      if (aliveRef.current) {
+        toast.error(error instanceof Error ? error.message : "Could not export this packlog.");
+      }
+    } finally {
+      if (aliveRef.current) setExportingId(null);
+    }
+  }, []);
 
   const columns: GridColDef[] = useMemo(
     () => [
@@ -197,8 +225,28 @@ const ScanAndPack = () => {
         field: "actions",
         headerName: "Actions",
         type: "actions",
-        width: 110,
+        width: 140,
         getActions: (params) => [
+          <GridActionsCellItem
+            key="export"
+            icon={
+              exportingId === params.row.id ? (
+                <CircularProgress size={16} />
+              ) : (
+                <FileDownloadOutlined sx={{ width: 18, height: 18, color: "primary.main" }} />
+              )
+            }
+            label="Export"
+            title="Export to Excel"
+            disabled={exportingId !== null}
+            onClick={(event) => {
+              event.stopPropagation();
+              void handleExport(params.row as BatchRow);
+            }}
+            // DataGrid v8 dropped `sx` from this component's type but still
+            // forwards it to the IconButton; a spread skips the excess-prop check.
+            {...{ sx: { margin: "0 2px", padding: "4px", borderRadius: "6px", "&:hover": { backgroundColor: "rgba(0,136,163,0.08)" } } }}
+          />,
           <GridActionsCellItem
             key="view"
             icon={<VisibilityOutlined sx={{ width: 18, height: 18, color: "primary.main" }} />}
@@ -226,7 +274,7 @@ const ScanAndPack = () => {
         ],
       },
     ],
-    [navigate]
+    [navigate, exportingId, handleExport]
   );
 
   return (
