@@ -2,7 +2,7 @@
  * Week-folder arithmetic for Scan & Pack files — the same rules TrackVid-BE
  * uses for Google Drive (src/utils/googleDrive/weekFolder.ts), applied to a
  * folder on this computer instead. Pure functions, so the retention rule is
- * unit-tested.
+ * unit-tested. Retention is a rolling window of N×7 days (see retentionCutoffKey).
  *
  * Layout under the chosen folder:
  *   scan-and-pack/
@@ -16,7 +16,7 @@
  */
 export const ROOT_FOLDER_NAME = 'scan-and-pack'
 
-/** The backend keeps this week and last week. Settings can change it here. */
+/** Weeks of data kept by default (a rolling 14 days). Settings can change it here. */
 export const DEFAULT_WEEKS_KEPT = 2
 export const MIN_WEEKS_KEPT = 1
 export const MAX_WEEKS_KEPT = 52
@@ -89,10 +89,17 @@ export const DAY_FOLDER_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 /** A packlog folder this app made, inside a day folder. */
 export const PACKLOG_FOLDER_PATTERN = /^SP-[A-Za-z0-9-]+$/
 
-/** A day folder expires with its (IST) week. */
+/** A day folder expires once that whole IST day is outside the kept window. */
 export const isDayExpired = (dayKey: string, now: Date, weeksKept: number): boolean =>
-  // Noon IST on that day, well inside it whatever the host's time zone.
-  isWeekExpired(weekRangeFor(new Date(`${dayKey}T06:30:00Z`)).weekEnd, now, weeksKept)
+  dayKey < retentionCutoffKey(now, weeksKept)
+
+/** A packlog expires once the IST day it was created on is outside the kept window. */
+export const isPacklogExpired = (createdAt: string, now: Date, weeksKept: number): boolean => {
+  const created = new Date(createdAt)
+  // An unreadable date is never a reason to delete someone's packlog.
+  if (Number.isNaN(created.getTime())) return false
+  return isDayExpired(istDateKey(created), now, weeksKept)
+}
 
 /**
  * LEGACY LAYOUT: week folders (`YYYY-MM-DD_to_YYYY-MM-DD`) from before the
@@ -101,13 +108,14 @@ export const isDayExpired = (dayKey: string, now: Date, weeksKept: number): bool
 export const WEEK_FOLDER_PATTERN = /^(\d{4}-\d{2}-\d{2})_to_(\d{4}-\d{2}-\d{2})$/
 
 /**
- * The Monday of the oldest week still kept. With 2 weeks kept that is last
- * week's Monday: this week and last week stay, the week before last goes.
+ * The oldest IST day still kept. Retention is a ROLLING window, not calendar
+ * weeks: N weeks keeps today and the N×7−1 days before it. (Calendar weeks
+ * made "1 week" mean "since Monday", so on a Tuesday only two days were left.)
  */
 export const retentionCutoffKey = (now: Date, weeksKept: number): string =>
-  weekRangeFor(new Date(now.getTime() - (clampWeeks(weeksKept) - 1) * 7 * DAY_MS)).weekStart
+  istDateKey(new Date(now.getTime() - (clampWeeks(weeksKept) * 7 - 1) * DAY_MS))
 
-/** `YYYY-MM-DD` keys compare correctly as strings. */
+/** A whole week (legacy week folder) expires once its last day is outside the window. `YYYY-MM-DD` keys compare as strings. */
 export const isWeekExpired = (weekEnd: string, now: Date, weeksKept: number): boolean =>
   weekEnd < retentionCutoffKey(now, weeksKept)
 

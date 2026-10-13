@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { clampWeeks, isWeekExpired, partFileName, retentionCutoffKey, roundRobin, weekRangeFor } from '@shared/utils/weekFolder'
+import {
+  clampWeeks,
+  isDayExpired,
+  isPacklogExpired,
+  isWeekExpired,
+  partFileName,
+  retentionCutoffKey,
+  roundRobin,
+  weekRangeFor
+} from '@shared/utils/weekFolder'
 
 describe('weekRangeFor', () => {
   it('runs Monday to Sunday in IST', () => {
@@ -25,21 +34,33 @@ describe('weekRangeFor', () => {
 describe('retention', () => {
   const now = new Date('2026-09-30T04:30:00Z') // week of 2026-09-28
 
-  it('keeps this week and last week by default, like the backend', () => {
-    expect(retentionCutoffKey(now, 2)).toBe('2026-09-21')
+  it('keeps a rolling 14 days by default', () => {
+    expect(retentionCutoffKey(now, 2)).toBe('2026-09-17')
     expect(isWeekExpired('2026-10-04', now, 2)).toBe(false) // this week
     expect(isWeekExpired('2026-09-27', now, 2)).toBe(false) // last week
-    expect(isWeekExpired('2026-09-20', now, 2)).toBe(true) // the week before last
+    expect(isWeekExpired('2026-09-20', now, 2)).toBe(false) // ends inside the window
+    expect(isWeekExpired('2026-09-13', now, 2)).toBe(true) // wholly older than 14 days
   })
 
-  it('keeps only this week when set to 1', () => {
-    expect(isWeekExpired('2026-10-04', now, 1)).toBe(false)
-    expect(isWeekExpired('2026-09-27', now, 1)).toBe(true)
+  it('keeps the last 7 days when set to 1, not just "since Monday"', () => {
+    // Tue 13 Oct 2026: calendar weeks kept only Mon 12 + Tue 13.
+    const tuesday = new Date('2026-10-13T06:00:00Z')
+    expect(retentionCutoffKey(tuesday, 1)).toBe('2026-10-07')
+    expect(isDayExpired('2026-10-07', tuesday, 1)).toBe(false)
+    expect(isDayExpired('2026-10-11', tuesday, 1)).toBe(false) // last Sunday
+    expect(isDayExpired('2026-10-06', tuesday, 1)).toBe(true)
   })
 
-  it('keeps four weeks when set to 4', () => {
-    expect(isWeekExpired('2026-09-13', now, 4)).toBe(false)
-    expect(isWeekExpired('2026-09-06', now, 4)).toBe(true)
+  it('keeps 28 days when set to 4', () => {
+    expect(isWeekExpired('2026-09-06', now, 4)).toBe(false)
+    expect(isWeekExpired('2026-08-30', now, 4)).toBe(true)
+  })
+
+  it('expires a packlog by the IST day it was created', () => {
+    expect(isPacklogExpired('2026-09-17T00:00:00Z', now, 2)).toBe(false)
+    // 16 Sep 23:00 IST — a day too old.
+    expect(isPacklogExpired('2026-09-16T17:30:00Z', now, 2)).toBe(true)
+    expect(isPacklogExpired('not a date', now, 1)).toBe(false)
   })
 
   it('clamps nonsense settings', () => {
@@ -87,13 +108,14 @@ describe('day-wise folders', () => {
     ])
   })
 
-  it('expires a day folder with its week', async () => {
-    const { isDayExpired, DAY_FOLDER_PATTERN, PACKLOG_FOLDER_PATTERN } = await import('@shared/utils/weekFolder')
-    const now = new Date('2026-09-30T04:30:00Z') // Wednesday, week of 28 Sep
-    expect(isDayExpired('2026-09-28', now, 2)).toBe(false) // this week (Monday)
-    expect(isDayExpired('2026-09-21', now, 2)).toBe(false) // last week
-    expect(isDayExpired('2026-09-20', now, 2)).toBe(true) // Sunday of the week before last
-    expect(isDayExpired('2026-09-27', now, 1)).toBe(true) // last week, keeping one
+  it('expires a day folder once it leaves the rolling window', async () => {
+    const { DAY_FOLDER_PATTERN, PACKLOG_FOLDER_PATTERN } = await import('@shared/utils/weekFolder')
+    const now = new Date('2026-09-30T04:30:00Z') // Wednesday
+    expect(isDayExpired('2026-09-28', now, 2)).toBe(false)
+    expect(isDayExpired('2026-09-17', now, 2)).toBe(false) // 14th day back
+    expect(isDayExpired('2026-09-16', now, 2)).toBe(true)
+    expect(isDayExpired('2026-09-24', now, 1)).toBe(false) // 7th day back, keeping one
+    expect(isDayExpired('2026-09-23', now, 1)).toBe(true)
     expect(DAY_FOLDER_PATTERN.test('2026-09-30')).toBe(true)
     expect(DAY_FOLDER_PATTERN.test('2026-09-28_to_2026-10-04')).toBe(false)
     expect(PACKLOG_FOLDER_PATTERN.test('SP-20260930-200115-GIO')).toBe(true)

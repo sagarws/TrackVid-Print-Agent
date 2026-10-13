@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { app } from 'electron'
@@ -14,6 +14,7 @@ import type {
 import { pageList } from '@shared/utils/pageList'
 import { prunePageResources } from '@shared/utils/pdfPrune'
 import { packlogFolderParts, partFileName, ROOT_FOLDER_NAME, weekRangeFor } from '@shared/utils/weekFolder'
+import { durableJsonNames, readDurableJson, removeDurableJson, writeDurableJson } from '../durableJson'
 import { logger } from '../logger'
 import { printPerf, since } from './perf'
 import { getSettings } from '../settings'
@@ -66,24 +67,23 @@ const load = (): Map<string, Entry> => {
   entries = new Map()
   const dir = recordsDir()
   mkdirSync(dir, { recursive: true })
-  for (const name of readdirSync(dir)) {
-    if (!name.endsWith('.json')) continue
+  for (const name of durableJsonNames(readdirSync(dir))) {
     try {
-      const entry = JSON.parse(readFileSync(join(dir, name), 'utf8')) as Entry
-      if (entry?.packlog?._id) entries.set(entry.packlog._id, entry)
+      // Falls back to the .tmp / .bak copy when a power cut left this one empty.
+      const entry = readDurableJson<Entry>(join(dir, name), e => Boolean(e?.packlog?._id && Array.isArray(e.orders)))
+      entries.set(entry.packlog._id, entry)
     } catch (error) {
-      logger.warn(`[scanpack] skipped unreadable record ${name}`, error)
+      // The file is left in place, never deleted, so it can still be recovered by hand.
+      logger.error(`[scanpack] could not read packlog record ${name} or its backup`, error)
     }
   }
   return entries
 }
 
 const writeEntry = (entry: Entry): void => {
-  const file = join(recordsDir(), `${entry.packlog._id}.json`)
-  const temp = `${file}.tmp`
-  // Write-then-rename: a crash mid-write never leaves half a record.
-  writeFileSync(temp, JSON.stringify(entry))
-  renameSync(temp, file)
+  // Flushed to disk with a backup of the previous save: a crash or power cut
+  // mid-write never loses the record (see durableJson.ts).
+  writeDurableJson(join(recordsDir(), `${entry.packlog._id}.json`), entry)
 }
 
 /** Write every changed packlog now. Called on a short timer and on quit. */
@@ -484,7 +484,7 @@ const deleteFiles = (entry: Entry): { deleted: number; failed: number } => {
 const dropEntry = (id: string): void => {
   load().delete(id)
   dirty.delete(id)
-  rmSync(join(recordsDir(), `${id}.json`), { force: true })
+  removeDurableJson(join(recordsDir(), `${id}.json`))
 }
 
 export const deletePacklog = (id: string): void => {

@@ -4,6 +4,7 @@ import type { CleanupSummary } from '@shared/types/scanpack'
 import {
   DAY_FOLDER_PATTERN,
   isDayExpired,
+  isPacklogExpired,
   isWeekExpired,
   PACKLOG_FOLDER_PATTERN,
   ROOT_FOLDER_NAME,
@@ -19,8 +20,9 @@ import { allPacklogs, removePacklogWithFiles, storageRoot } from './store'
  *   cleanupExpiredPacklogs         → drop packlogs (records + PDFs) from expired weeks
  *   cleanupExpiredDriveWeekFolders → drop expired week folders
  *
- * "Expired" is the backend's rule with a configurable count: keep the current
- * IST week and the (N-1) before it; anything older goes.
+ * "Expired" is a rolling window: N weeks kept means the last N×7 days (IST),
+ * counted back from today — not calendar weeks, which on a Monday or Tuesday
+ * left only a day or two of packlogs.
  *
  * Only this app's own files are touched. In an expired day folder (and its
  * packlog folders), or an old-layout week folder, a file is deleted only when
@@ -42,7 +44,7 @@ export const runScanPackCleanup = (now = new Date()): CleanupSummary => {
   const summary: CleanupSummary = { at: now.toISOString(), packlogsDeleted: 0, filesDeleted: 0, foldersDeleted: 0, failed: 0 }
 
   for (const packlog of allPacklogs()) {
-    if (!isWeekExpired(packlog.weekEnd, now, weeksKept)) continue
+    if (!isPacklogExpired(packlog.createdAt, now, weeksKept)) continue
     try {
       cancelForPacklog(packlog._id)
       const result = removePacklogWithFiles(packlog._id)

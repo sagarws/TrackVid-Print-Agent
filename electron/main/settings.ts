@@ -1,9 +1,10 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { app } from 'electron'
 import type { ThemeMode } from '@shared/types/agent'
 import { normaliseOrigin } from '@shared/utils/origin'
 import { clampWeeks, clampWorkers, DEFAULT_EXTRACT_WORKERS, DEFAULT_WEEKS_KEPT } from '@shared/utils/weekFolder'
+import { readDurableJson, writeDurableJson } from './durableJson'
 import { logger } from './logger'
 
 /**
@@ -78,7 +79,7 @@ const sanitise = (raw: unknown): AgentSettings => {
 export const getSettings = (): AgentSettings => {
   if (cached) return cached
   try {
-    cached = sanitise(JSON.parse(readFileSync(filePath(), 'utf8')))
+    cached = sanitise(readDurableJson(filePath()))
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
       logger.warn('settings.json unreadable, using defaults', error)
@@ -92,10 +93,8 @@ export const updateSettings = (patch: Partial<AgentSettings>): AgentSettings => 
   const next = sanitise({ ...getSettings(), ...patch })
   const path = filePath()
   mkdirSync(dirname(path), { recursive: true })
-  // Write-then-rename, so a crash mid-write cannot leave half a file behind.
-  const temp = `${path}.tmp`
-  writeFileSync(temp, JSON.stringify(next, null, 2))
-  renameSync(temp, path)
+  // Flushed with a backup, so a crash or power cut cannot reset the settings.
+  writeDurableJson(path, next)
   cached = next
   return next
 }

@@ -7,8 +7,7 @@ import SectionCard from './SectionCard'
 const WEEK_OPTIONS = Array.from({ length: MAX_WEEKS_KEPT - MIN_WEEKS_KEPT + 1 }, (_, i) => i + MIN_WEEKS_KEPT)
 const WORKER_OPTIONS = Array.from({ length: MAX_EXTRACT_WORKERS - MIN_EXTRACT_WORKERS + 1 }, (_, i) => i + MIN_EXTRACT_WORKERS)
 
-const describe = (weeks: number) =>
-  weeks === 1 ? 'This week only' : weeks === 2 ? 'This week + last week' : `This week + the ${weeks - 1} weeks before it`
+const describe = (weeks: number) => `Last ${weeks * 7} days`
 
 type Feedback = { ok: boolean; message: string }
 
@@ -49,8 +48,8 @@ const ScanPackStorageCard = ({ scanPack }: { scanPack: ScanPackSettingsState }) 
 
   const cleanupText = (s: { packlogsDeleted: number; filesDeleted: number; foldersDeleted: number; failed: number }) =>
     s.packlogsDeleted || s.filesDeleted || s.foldersDeleted
-      ? `Removed ${s.packlogsDeleted} packlog(s), ${s.filesDeleted} file(s) and ${s.foldersDeleted} week folder(s).${s.failed ? ` ${s.failed} could not be removed.` : ''}`
-      : 'Nothing older than the kept weeks — nothing to remove.'
+      ? `Removed ${s.packlogsDeleted} packlog(s), ${s.filesDeleted} file(s) and ${s.foldersDeleted} folder(s).${s.failed ? ` ${s.failed} could not be removed.` : ''}`
+      : 'Nothing older than the kept days — nothing to remove.'
 
   const last = scanPack.lastCleanup
 
@@ -130,8 +129,8 @@ const ScanPackStorageCard = ({ scanPack }: { scanPack: ScanPackSettingsState }) 
               Keep data for
             </Typography>
             <Typography variant='caption' color='text.secondary'>
-              Weeks run Monday to Sunday. Older packlogs, their PDFs and their week folders are deleted automatically (checked
-              every 6 hours).
+              Counted back from today. Packlogs older than this, their PDFs and their folders are deleted automatically
+              (checked every 6 hours).
             </Typography>
           </Box>
           <TextField

@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, utilityProcess, type UtilityProcess } from 'electron'
 import type {
@@ -10,6 +10,7 @@ import type {
   PartName
 } from '@shared/types/scanpack'
 import { roundRobin } from '@shared/utils/weekFolder'
+import { durableJsonNames, readDurableJson, removeDurableJson, writeDurableJson } from '../durableJson'
 import { logger } from '../logger'
 import { getSettings } from '../settings'
 import { printPerf } from './perf'
@@ -78,9 +79,7 @@ const flushJobs = (): void => {
     const job = jobs.get(id)
     if (!job) continue
     try {
-      const temp = `${jobFile(id)}.tmp`
-      writeFileSync(temp, JSON.stringify(job))
-      renameSync(temp, jobFile(id))
+      writeDurableJson(jobFile(id), job)
     } catch (error) {
       logger.error(`[scanpack.jobs] could not save job ${id}`, error)
     }
@@ -91,11 +90,10 @@ const flushJobs = (): void => {
 const loadJobs = (): void => {
   const dir = jobsDir()
   if (!existsSync(dir)) return
-  for (const name of readdirSync(dir)) {
-    if (!name.endsWith('.json')) continue
+  for (const name of durableJsonNames(readdirSync(dir))) {
     try {
-      const job = JSON.parse(readFileSync(join(dir, name), 'utf8')) as ExtractionJob
-      if (job?.id && Array.isArray(job.records)) jobs.set(job.id, job)
+      const job = readDurableJson<ExtractionJob>(join(dir, name), j => Boolean(j?.id && Array.isArray(j.records)))
+      jobs.set(job.id, job)
     } catch (error) {
       logger.warn(`[scanpack.jobs] skipped unreadable job ${name}`, error)
     }
@@ -396,7 +394,7 @@ export const deleteJob = (id: string): void => {
   jobs.delete(id)
   dirty.delete(id)
   pending.delete(id)
-  rmSync(jobFile(id), { force: true })
+  removeDurableJson(jobFile(id))
 }
 
 // ---------------------------------------------------------------------------
