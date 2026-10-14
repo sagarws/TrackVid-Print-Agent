@@ -46,6 +46,8 @@ export interface ScanPackOrder {
   packStatus: PackStatus;
   /** ISO timestamp of the first successful print; null while `ready`. */
   packedAt: string | null;
+  /** Master SKU its SKU maps to in the SKU Mapping table; null when none matched. */
+  masterSku: string | null;
 }
 
 export interface ScanPackDocument {

@@ -16,6 +16,7 @@ import { prunePageResources } from '@shared/utils/pdfPrune'
 import { packlogFolderParts, partFileName, ROOT_FOLDER_NAME, weekRangeFor } from '@shared/utils/weekFolder'
 import { durableJsonNames, readDurableJson, removeDurableJson, writeDurableJson } from '../durableJson'
 import { logger } from '../logger'
+import { masterSkuForRow } from './masterSku'
 import { printPerf, since } from './perf'
 import { getSettings } from '../settings'
 
@@ -195,7 +196,8 @@ export const createPacklog = (input: CreatePacklogInput) => {
     invoiceFile: null,
     mappedAt: null,
     packStatus: 'ready',
-    packedAt: null
+    packedAt: null,
+    masterSku: masterSkuForRow(input.headers, o.rawRow ?? {})
   }))
 
   const entry = { packlog, orders }
@@ -228,6 +230,28 @@ export const listPacklogs = (opts: { page?: number; limit?: number; platform?: s
 export const getPacklog = (id: string) => {
   const entry = get(id)
   return { packlog: entry.packlog, orders: [...entry.orders].sort((a, b) => a.rowIndex - b.rowIndex) }
+}
+
+/**
+ * Re-read every order's master SKU from the current SKU Mapping table — run
+ * after a mapping is imported or cleared, so packlogs uploaded before it pick
+ * it up too. Returns how many orders changed.
+ */
+export const applyMasterSkus = (): number => {
+  let changed = 0
+  for (const entry of load().values()) {
+    let touched = false
+    for (const order of entry.orders) {
+      const next = masterSkuForRow(entry.packlog.headers, order.rawRow ?? {})
+      if ((order.masterSku ?? null) === next) continue
+      order.masterSku = next
+      touched = true
+      changed++
+    }
+    if (touched) markDirty(entry.packlog._id)
+  }
+  flushScanPack()
+  return changed
 }
 
 // ---------------------------------------------------------------------------

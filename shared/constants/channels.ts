@@ -47,6 +47,11 @@ export const SCANPACK_IPC = {
   jobChanged: 'scanpack:job-changed',
   setWorkers: 'scanpack:set-workers',
   saveDownload: 'scanpack:save-download',
+  /** The `master-sku` table: summary, every record, replace from a sheet, clear. */
+  masterSkuSummary: 'scanpack:master-sku-summary',
+  masterSkuList: 'scanpack:master-sku-list',
+  masterSkuImport: 'scanpack:master-sku-import',
+  masterSkuClear: 'scanpack:master-sku-clear',
   /** One-way: timing lines from the window, printed in the app's terminal. */
   perf: 'scanpack:perf'
 } as const

@@ -61,6 +61,7 @@ interface ServerPacklogOrder {
    */
   packStatus?: PackStatus;
   packedAt?: string | null;
+  masterSku?: string | null;
 }
 
 interface ServerPacklogDetail {
@@ -115,6 +116,7 @@ export const adaptPacklogDetail = (d: ServerPacklogDetail): ScanPackBatch => {
     // build does not know about, both land on the safe side.
     packStatus: o.packStatus === "packed" ? "packed" : "ready",
     packedAt: o.packedAt ?? null,
+    masterSku: o.masterSku ?? null,
     };
   });
   return {
@@ -209,6 +211,22 @@ const mapOrders = (
 /** Mark one order packed. Idempotent: a second call keeps the first `packedAt`. */
 const markPacked = (packlogObjectId: string, orderObjectId: string) =>
   envelope(api().markPacked(packlogObjectId, orderObjectId));
+
+/** The SKU Mapping (`master-sku`) table. These return the payload directly. */
+const unwrap = async <T>(call: Promise<IpcResult<T>>): Promise<T> => {
+  const result = await call;
+  if (!result.ok) throw new Error(result.error);
+  return result.value;
+};
+
+export const MasterSkuService = {
+  summary: () => unwrap(api().masterSkuSummary()),
+  list: () => unwrap(api().masterSkuList()),
+  /** Merge a sheet into the table (no duplicate pairs); packlogs are re-tagged. */
+  import: (fileName: string, pairs: { listingSku: string; masterSku: string }[]) =>
+    unwrap(api().masterSkuImport(fileName, pairs)),
+  clear: () => unwrap(api().masterSkuClear()),
+};
 
 export const PacklogService = {
   createPacklog,

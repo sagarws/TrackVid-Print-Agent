@@ -48,7 +48,7 @@ export const exportBatchXlsx = (batch: ScanPackBatch) => {
   );
   // The sheet's own Shipping Label / Invoice columns are placeholders; the
   // export reports whether that part is actually mapped.
-  const columns = [...EXPORT_SHEET_COLUMNS, "Shipping Label", "Invoice"];
+  const columns = [...EXPORT_SHEET_COLUMNS, "Master SKU", "Shipping Label", "Invoice"];
   const ordered = batch.orders.slice().sort((a, b) => a.rowIndex - b.rowIndex);
 
   const workbook = XLSX.utils.book_new();
@@ -57,6 +57,7 @@ export const exportBatchXlsx = (batch: ScanPackBatch) => {
       .filter((order) => matchesStatus(order, tab.key))
       .map((order) => [
         ...sourceHeaders.map((header) => (header ? order.raw[header] ?? "" : "")),
+        order.masterSku ?? "",
         order.mapping?.labelPages.length ? "Yes" : "No",
         order.mapping?.invoicePages.length ? "Yes" : "No",
       ]);

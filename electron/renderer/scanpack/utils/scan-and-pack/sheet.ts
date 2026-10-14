@@ -12,6 +12,7 @@
 import * as XLSX from "xlsx";
 import type { SheetRow } from "../../types/scanAndPack.types";
 import { normaliseAwb } from "./platforms";
+import { pairsFromColumns, type MasterSkuParseResult } from "@shared/utils/masterSku";
 
 /**
  * Column names, in priority order, that can carry the forward AWB. The
@@ -123,6 +124,29 @@ export const parseOrderSheet = async (file: File): Promise<ParsedSheet> => {
   }
 
   return { headers, rows, awbHeader: findAwbHeader(headers) };
+};
+
+/**
+ * The SKU Mapping sheet: every column is one master SKU (its first cell) and
+ * the listing SKUs under it. Only the first sheet is read.
+ */
+export const parseMasterSkuSheet = async (file: File): Promise<MasterSkuParseResult> => {
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(new Uint8Array(buffer), { type: "array", cellDates: true });
+  const sheet = workbook.SheetNames[0] ? workbook.Sheets[workbook.SheetNames[0]] : undefined;
+  const ref = sheet?.["!ref"];
+  if (!sheet || !ref) throw new Error("The uploaded file is empty.");
+
+  const range = XLSX.utils.decode_range(ref);
+  const columns: string[][] = [];
+  for (let col = range.s.c; col <= range.e.c; col++) {
+    const cells: string[] = [];
+    for (let row = range.s.r; row <= range.e.r; row++) {
+      cells.push(cellToString(sheet[XLSX.utils.encode_cell({ r: row, c: col })] as XLSX.CellObject | undefined));
+    }
+    columns.push(cells);
+  }
+  return pairsFromColumns(columns);
 };
 
 export const readAwb = (row: SheetRow, awbHeader: string | null) =>

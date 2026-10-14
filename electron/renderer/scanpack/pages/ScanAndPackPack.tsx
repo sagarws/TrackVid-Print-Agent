@@ -12,6 +12,7 @@
  */
 import {
   Alert,
+  Autocomplete,
   Box,
   Checkbox,
   Chip,
@@ -24,6 +25,7 @@ import {
   Typography,
 } from "@mui/material";
 import {
+  AccountTreeOutlined,
   ArrowBack,
   DownloadOutlined,
   PrintOutlined,
@@ -99,6 +101,9 @@ const ScanAndPackPack = () => {
   const [packLimit, setPackLimit] = useState(10);
   /** Order id currently being reprinted, so only that row shows a spinner. */
   const [reprintingId, setReprintingId] = useState<string | null>(null);
+  /** Print by Master SKU: the picked master, and the bulk run in flight. */
+  const [masterPick, setMasterPick] = useState<string | null>(null);
+  const [bulkRun, setBulkRun] = useState<{ mode: "print" | "download"; done: number; total: number } | null>(null);
 
   // The Print Target radio lives inside the Printer Setup modal now. When the
   // modal closes, refresh from localStorage so a change there is immediately
@@ -165,6 +170,8 @@ const ScanAndPackPack = () => {
     [batch]
   );
 
+  const hasMasterSkus = useMemo(() => Boolean(batch?.orders.some((o) => o.masterSku)), [batch]);
+
   // If the URL carried an orderId, auto-select the matching order once the
   // batch resolves. Prefer mapped options; fall back to any order in the batch
   // so an operator following a "View" link on an unmapped row still lands on
@@ -208,7 +215,8 @@ const ScanAndPackPack = () => {
     const matches = (order: ScanPackOrder) =>
       order.awb === needle ||
       Boolean(listingSkuHeader && matchesColumn(order, listingSkuHeader, needle)) ||
-      Boolean(listingIdHeader && matchesColumn(order, listingIdHeader, needle));
+      Boolean(listingIdHeader && matchesColumn(order, listingIdHeader, needle)) ||
+      Boolean(order.masterSku && normaliseAwb(order.masterSku) === needle);
     const inSheetOrder = options.slice().sort((a, b) => a.rowIndex - b.rowIndex);
 
     const hit = inSheetOrder.find((order) => order.packStatus !== "packed" && matches(order));
@@ -230,12 +238,7 @@ const ScanAndPackPack = () => {
       return null;
     }
 
-    const anyMatch = batch.orders.find(
-      (order) =>
-        order.awb === needle ||
-        (listingSkuHeader && matchesColumn(order, listingSkuHeader, needle)) ||
-        (listingIdHeader && matchesColumn(order, listingIdHeader, needle))
-    );
+    const anyMatch = batch.orders.find(matches);
     toast.error(
       anyMatch
         ? `"${value}" is in this packlog but has no label mapped yet.`
@@ -524,6 +527,7 @@ const ScanAndPackPack = () => {
         awb: order.awbRaw || order.awb,
         sku: listingSkuHeader ? order.raw[listingSkuHeader] ?? "" : "",
         listingId: listingIdHeader ? order.raw[listingIdHeader] ?? "" : "",
+        masterSku: order.masterSku ?? "",
         mapped: Boolean(order.mapping),
         packStatus: order.packStatus,
         packedAt: order.packedAt,
@@ -584,6 +588,120 @@ const ScanAndPackPack = () => {
     [batch]
   );
 
+  // -------------------------------------------------------------------------
+  // Print by Master SKU
+  //
+  // Every order carries the master SKU its SKU maps to (SKU Mapping, tagged
+  // when the packlog was saved). Picking one master prints every Ready to pack
+  // order of it in sheet order — each one packed as it goes out, exactly as a
+  // scan would — or downloads all of its orders as one PDF.
+  // -------------------------------------------------------------------------
+
+  const masterOptions = useMemo(() => {
+    const byMaster = new Map<string, { master: string; ready: number; total: number }>();
+    for (const order of options) {
+      if (!order.masterSku) continue;
+      const entry = byMaster.get(order.masterSku) ?? { master: order.masterSku, ready: 0, total: 0 };
+      entry.total += 1;
+      if (order.packStatus !== "packed") entry.ready += 1;
+      byMaster.set(order.masterSku, entry);
+    }
+    return [...byMaster.values()].sort((a, b) => b.ready - a.ready || a.master.localeCompare(b.master));
+  }, [options]);
+
+  const pickedMaster = masterOptions.find((m) => m.master === masterPick) ?? null;
+
+  const partReadyFor = (order: ScanPackOrder, part: PrintPart) =>
+    part === "label"
+      ? Boolean(order.mapping?.labelPages.length)
+      : part === "invoice"
+      ? Boolean(order.mapping?.invoicePages.length)
+      : Boolean(order.mapping?.labelPages.length && order.mapping?.invoicePages.length);
+
+  const ordersOfMaster = (master: string, readyOnly: boolean) =>
+    options
+      .filter((o) => o.masterSku === master && (!readyOnly || o.packStatus !== "packed"))
+      .sort((a, b) => a.rowIndex - b.rowIndex);
+
+  const printByMaster = async () => {
+    if (!batch || !pickedMaster || bulkRun || runningAction) return;
+    const blocked = findPrintTargetMismatch(printTarget, batch.scanMode);
+    if (blocked) {
+      setMismatch(blocked);
+      return;
+    }
+    const part = printTarget;
+    const queue = ordersOfMaster(pickedMaster.master, true).filter((o) => partReadyFor(o, part));
+    if (!queue.length) {
+      toast.error(`No Ready to pack order of ${pickedMaster.master} has a ${part} mapped.`);
+      return;
+    }
+    // Holds off scans while the run is printing, so nothing interleaves on the printer.
+    scanBusyRef.current = true;
+    setBulkRun({ mode: "print", done: 0, total: queue.length });
+    let printed = 0;
+    try {
+      for (const order of queue) {
+        await maybeCopyAwbOnPrint(order);
+        const outcome = await dispatchPrint(batch.id, order, part);
+        if (!outcome.viaAgent) {
+          warnUnconfirmedPrint(outcome.message);
+          break;
+        }
+        await markOrderPacked(order);
+        printed += 1;
+        if (aliveRef.current) setBulkRun({ mode: "print", done: printed, total: queue.length });
+      }
+      if (aliveRef.current && printed) {
+        toast.success(
+          `${readOutputMode() === "download" ? "Saved" : "Printed"} ${printed} order(s) of ${pickedMaster.master}.`
+        );
+      }
+    } catch (err) {
+      if (aliveRef.current) {
+        const reason = err instanceof Error ? err.message : "Could not print.";
+        toast.error(printed ? `Stopped after ${printed} of ${queue.length}: ${reason}` : reason);
+      }
+    } finally {
+      scanBusyRef.current = false;
+      if (aliveRef.current) setBulkRun(null);
+    }
+  };
+
+  /** Every mapped order of the master (packed or not) as one PDF. Never packs. */
+  const downloadByMaster = async () => {
+    if (!batch || !pickedMaster || bulkRun || runningAction) return;
+    const blocked = findPrintTargetMismatch(printTarget, batch.scanMode);
+    if (blocked) {
+      setMismatch(blocked);
+      return;
+    }
+    const part = printTarget;
+    const queue = ordersOfMaster(pickedMaster.master, false).filter((o) => partReadyFor(o, part));
+    if (!queue.length) {
+      toast.error(`No order of ${pickedMaster.master} has a ${part} mapped.`);
+      return;
+    }
+    setBulkRun({ mode: "download", done: 0, total: queue.length });
+    try {
+      const { PDFDocument } = await import("pdf-lib");
+      const out = await PDFDocument.create();
+      for (const [i, order] of queue.entries()) {
+        const source = await PDFDocument.load(await fetchOrderBytes(batch.id, order, part));
+        const pages = await out.copyPages(source, source.getPageIndices());
+        pages.forEach((page) => out.addPage(page));
+        if (aliveRef.current) setBulkRun({ mode: "download", done: i + 1, total: queue.length });
+      }
+      const fileName = `${pickedMaster.master.replace(/[\\/:*?"<>|]+/g, "_")}-${part}.pdf`;
+      downloadPdf(await out.save(), fileName);
+      if (aliveRef.current) toast.success(`Downloaded ${queue.length} order(s) of ${pickedMaster.master}.`);
+    } catch (err) {
+      if (aliveRef.current) toast.error(err instanceof Error ? err.message : "Could not build the PDF.");
+    } finally {
+      if (aliveRef.current) setBulkRun(null);
+    }
+  };
+
   const packColumns: GridColDef[] = useMemo(
     () => [
       {
@@ -604,6 +722,9 @@ const ScanAndPackPack = () => {
         : []),
       ...(listingIdHeader
         ? [{ field: "listingId", headerName: "Listing ID", flex: 1, minWidth: 150 } as GridColDef]
+        : []),
+      ...(hasMasterSkus
+        ? [{ field: "masterSku", headerName: "Master SKU", flex: 1, minWidth: 150 } as GridColDef]
         : []),
       {
         field: "mapped",
@@ -654,14 +775,16 @@ const ScanAndPackPack = () => {
           ) : null,
       },
     ],
-    [listingSkuHeader, listingIdHeader, reprintingId, runningAction, handleReprint]
+    [listingSkuHeader, listingIdHeader, hasMasterSkus, reprintingId, runningAction, handleReprint]
   );
 
   const secondaryFields: { label: string; header: string }[] = [
     ...(listingSkuHeader ? [{ label: "SKU", header: listingSkuHeader }] : []),
     ...(listingIdHeader ? [{ label: "ID", header: listingIdHeader }] : []),
   ];
-  const lookupLabel = ["AWB", ...secondaryFields.map((f) => f.label)].join(" / ");
+  const lookupLabel = ["AWB", ...secondaryFields.map((f) => f.label), ...(hasMasterSkus ? ["Master SKU"] : [])].join(
+    " / "
+  );
 
   const actionButton = (
     action: Action,
@@ -906,6 +1029,88 @@ const ScanAndPackPack = () => {
           )}
           </Stack>
 
+          <Box
+            sx={(t) => ({
+              border: `1px solid ${t.palette.divider}`,
+              borderRadius: "8px",
+              p: 1.5,
+            })}
+          >
+            <Stack
+              direction={{ xs: "column", md: "row" }}
+              spacing={1.5}
+              alignItems={{ xs: "stretch", md: "center" }}
+            >
+              <Typography
+                sx={{ fontSize: 12.5, fontWeight: 600, display: "flex", alignItems: "center", gap: 0.75, flexShrink: 0 }}
+              >
+                <AccountTreeOutlined sx={{ fontSize: 16, color: "primary.main" }} />
+                Print by Master SKU
+              </Typography>
+              {masterOptions.length ? (
+                <>
+                  <Autocomplete
+                    size="small"
+                    options={masterOptions}
+                    value={pickedMaster}
+                    onChange={(_, next) => setMasterPick(next?.master ?? null)}
+                    getOptionLabel={(option) => option.master}
+                    isOptionEqualToValue={(a, b) => a.master === b.master}
+                    renderOption={(props, option) => (
+                      <li {...props} key={option.master}>
+                        <Stack direction="row" justifyContent="space-between" sx={{ width: "100%", gap: 1 }}>
+                          <Typography sx={{ fontSize: 12.5, fontWeight: 600 }}>{option.master}</Typography>
+                          <Typography sx={{ fontSize: 11.5, color: "text.secondary" }}>
+                            {option.ready} ready / {option.total}
+                          </Typography>
+                        </Stack>
+                      </li>
+                    )}
+                    disabled={Boolean(bulkRun)}
+                    sx={{ flex: { md: "1 1 auto" }, maxWidth: { md: 360 }, minWidth: 220 }}
+                    renderInput={(params) => <TextField {...params} label="Master SKU" placeholder="Pick a master SKU" />}
+                  />
+                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ flexShrink: 0 }}>
+                    <ButtonElement
+                      type="button"
+                      variant="contained"
+                      size="small"
+                      loading={bulkRun?.mode === "print"}
+                      disabled={!pickedMaster || !pickedMaster.ready || Boolean(bulkRun) || Boolean(runningAction)}
+                      onClick={() => void printByMaster()}
+                      startIcon={<PrintOutlined />}
+                      sx={{ textTransform: "none", fontSize: 12.5, fontWeight: 600, height: 34, whiteSpace: "nowrap", px: 2, color: "white", "& .MuiButton-startIcon": { mr: 0.5, "& > svg": { fontSize: 14 } } }}
+                    >
+                      {pickedMaster ? `Print ${pickedMaster.ready} ready` : "Print ready"}
+                    </ButtonElement>
+                    <ButtonElement
+                      type="button"
+                      variant="outlined"
+                      size="small"
+                      loading={bulkRun?.mode === "download"}
+                      disabled={!pickedMaster || Boolean(bulkRun) || Boolean(runningAction)}
+                      onClick={() => void downloadByMaster()}
+                      startIcon={<DownloadOutlined />}
+                      sx={{ textTransform: "none", fontSize: 12.5, fontWeight: 600, height: 34, whiteSpace: "nowrap", px: 2, color: "primary.main", "& .MuiButton-startIcon": { mr: 0.5, "& > svg": { fontSize: 14 } } }}
+                    >
+                      {pickedMaster ? `Download ${pickedMaster.total} PDF` : "Download PDF"}
+                    </ButtonElement>
+                  </Stack>
+                  {bulkRun && (
+                    <Typography sx={{ fontSize: 12, color: "text.secondary", flexShrink: 0 }}>
+                      {bulkRun.mode === "print" ? "Printing" : "Preparing"} {bulkRun.done} / {bulkRun.total}…
+                    </Typography>
+                  )}
+                </>
+              ) : (
+                <Typography sx={{ fontSize: 12, color: "text.secondary" }}>
+                  No order in this packlog has a master SKU. Upload the master SKU file with{" "}
+                  <b>SKU Mapping</b> on the Scan and Pack page — packlogs are re-tagged when it is saved.
+                </Typography>
+              )}
+            </Stack>
+          </Box>
+
           {!selected && (
             <Box
               sx={(t) => ({
@@ -956,6 +1161,12 @@ const ScanAndPackPack = () => {
               <Divider sx={{ mb: 1.25 }} />
 
               <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 0.75 }}>
+                <Stack direction="row" spacing={0.75} sx={{ minWidth: 0 }}>
+                  <Typography sx={{ fontSize: 12, color: "text.secondary", flexShrink: 0 }}>Master SKU:</Typography>
+                  <Typography sx={{ fontSize: 12, fontWeight: 700, color: "primary.main" }}>
+                    {selected.masterSku || "—"}
+                  </Typography>
+                </Stack>
                 {batch.headers.map((header) => (
                   <Stack key={header} direction="row" spacing={0.75} sx={{ minWidth: 0 }}>
                     <Typography sx={{ fontSize: 12, color: "text.secondary", flexShrink: 0 }}>

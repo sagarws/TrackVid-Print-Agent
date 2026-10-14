@@ -11,9 +11,11 @@ import { logger } from '../logger'
 import { getSettings, updateSettings } from '../settings'
 import { notify } from '../state'
 import { isRendererUrl } from '../window'
+import { clearMasterSkus, listMasterSkus, masterSkuSummary, mergeMasterSkus } from './masterSku'
 import { printPerf } from './perf'
 import { runScanPackCleanup } from './retention'
 import {
+  applyMasterSkus,
   createPacklog,
   deletePacklog,
   downloadPart,
@@ -164,6 +166,30 @@ export const registerScanPackIpc = (): void => {
     }
     throw new ScanPackError('Too many files with this name in Downloads.', 'name_taken')
   })
+
+  // SKU Mapping: the master-sku table, merged from each sheet without duplicates.
+  handle(SCANPACK_IPC.masterSkuSummary, () => masterSkuSummary())
+  handle(SCANPACK_IPC.masterSkuList, () => listMasterSkus())
+  handle(SCANPACK_IPC.masterSkuImport, (fileName: unknown, pairs: unknown) => {
+    if (!Array.isArray(pairs)) throw new ScanPackError('Expected a list of listing / master SKUs.', 'bad_request')
+    const clean = pairs
+      .filter((p): p is Record<string, unknown> => Boolean(p) && typeof p === 'object')
+      .map(p => ({
+        listingSku: typeof p['listingSku'] === 'string' ? p['listingSku'] : '',
+        masterSku: typeof p['masterSku'] === 'string' ? p['masterSku'] : ''
+      }))
+    if (!clean.length) throw new ScanPackError('The sheet has no listing SKUs under its master SKUs.', 'empty_mapping')
+    const counts = mergeMasterSkus(isText(fileName) ? fileName.slice(0, 200) : 'SKU mapping', clean)
+    // Nothing new: no packlog can have changed, so skip the re-tag.
+    return { ...counts, ordersUpdated: counts.added || counts.updated ? applyMasterSkus() : 0 }
+  })
+  handle(SCANPACK_IPC.masterSkuClear, () => ({
+    ...clearMasterSkus(),
+    added: 0,
+    updated: 0,
+    skipped: 0,
+    ordersUpdated: applyMasterSkus()
+  }))
 
   handle(SCANPACK_IPC.setWorkers, (workers: unknown) => {
     updateSettings({ scanPackWorkers: clampWorkers(Number(workers)) })

@@ -6,6 +6,9 @@ import type {
   CreatePacklogInput,
   ExtractionJob,
   ExtractionJobSummary,
+  MasterSkuImportResult,
+  MasterSkuRecord,
+  MasterSkuSummary,
   PartName
 } from '@shared/types/scanpack'
 
@@ -69,6 +72,11 @@ const api = {
     setWorkers: (workers: number): Promise<Result<number>> => ipcRenderer.invoke(SCANPACK_IPC.setWorkers, workers),
     saveDownload: (bytes: Uint8Array, fileName: string): Promise<Result<string>> =>
       ipcRenderer.invoke(SCANPACK_IPC.saveDownload, bytes, fileName),
+    masterSkuSummary: (): Promise<Result<MasterSkuSummary>> => ipcRenderer.invoke(SCANPACK_IPC.masterSkuSummary),
+    masterSkuList: (): Promise<Result<MasterSkuRecord[]>> => ipcRenderer.invoke(SCANPACK_IPC.masterSkuList),
+    masterSkuImport: (fileName: string, pairs: { listingSku: string; masterSku: string }[]): Promise<Result<MasterSkuImportResult>> =>
+      ipcRenderer.invoke(SCANPACK_IPC.masterSkuImport, fileName, pairs),
+    masterSkuClear: (): Promise<Result<MasterSkuImportResult>> => ipcRenderer.invoke(SCANPACK_IPC.masterSkuClear),
     onJobChanged: (listener: (update: { jobs: ExtractionJobSummary[]; job: ExtractionJob | null }) => void): (() => void) => {
       const handler = (_event: IpcRendererEvent, update: { jobs: ExtractionJobSummary[]; job: ExtractionJob | null }) =>
         listener(update)

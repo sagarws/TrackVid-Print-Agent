@@ -40,6 +40,8 @@ export const buildOrders = (sheet: ParsedSheet, batchId: string): ScanPackOrder[
     // A freshly parsed sheet has never been to a printer.
     packStatus: "ready",
     packedAt: null,
+    // Filled in by the agent from the SKU Mapping table when the packlog is saved.
+    masterSku: null,
   }));
 
 export interface MatchResult {

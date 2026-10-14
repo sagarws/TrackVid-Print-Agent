@@ -65,6 +65,12 @@ export interface StoredPacklogOrder {
   mappedAt: string | null
   packStatus: PackStatus
   packedAt: string | null
+  /**
+   * The master SKU its SKU column maps to in the SKU Mapping table, set when
+   * the packlog is created and refreshed when a new mapping is imported.
+   * Absent / null: no mapping matched (or the packlog predates the feature).
+   */
+  masterSku?: string | null
 }
 
 export interface CreatePacklogInput {
@@ -151,4 +157,37 @@ export interface ScanPackSettingsState {
   lastCleanup: CleanupSummary | null
   /** Parallel PDF extractors. */
   workers: number
+}
+
+/** One row of the `master-sku` table: a listing SKU and the master it ships as. */
+export interface MasterSkuRecord {
+  id: string
+  listingSku: string
+  masterSku: string
+}
+
+/** What the SKU Mapping dialog shows about the stored table. */
+export interface MasterSkuSummary {
+  /** Listing SKUs mapped. */
+  total: number
+  /** Distinct master SKUs. */
+  masters: number
+  /** The sheet the table was last imported from. */
+  fileName: string | null
+  updatedAt: string | null
+}
+
+/** What one mapping sheet did to the table. */
+export interface MasterSkuMergeCounts extends MasterSkuSummary {
+  /** New listing SKU → master SKU pairs. */
+  added: number
+  /** Listing SKUs moved to a different master SKU. */
+  updated: number
+  /** Pairs already in the table — not added again. */
+  skipped: number
+}
+
+export interface MasterSkuImportResult extends MasterSkuMergeCounts {
+  /** Packlog orders whose master SKU changed with this import. */
+  ordersUpdated: number
 }

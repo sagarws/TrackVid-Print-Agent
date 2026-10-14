@@ -53,6 +53,7 @@ const LABEL_COUNT_FIELD = "__labelCount__";
 const INVOICE_COUNT_FIELD = "__invoiceCount__";
 const PACK_STATUS_FIELD = "__packStatus__";
 const PACKED_AT_FIELD = "__packedAt__";
+const MASTER_SKU_FIELD = "__masterSku__";
 const ACTIONS_FIELD = "__actions__";
 // The uploaded sheet almost always carries "Shipping Label", "Invoice" and
 // "Platform" columns that either duplicate our own status (Label/Invoice) or are
@@ -132,7 +133,10 @@ const ScanAndPackBatch = () => {
         if (!needle) return true;
         // Search across every sheet column so an operator can look up a row by
         // SKU or listing id, not only by AWB.
-        return Object.values(order.raw).some((value) => value.toLowerCase().includes(needle));
+        return (
+          Object.values(order.raw).some((value) => value.toLowerCase().includes(needle)) ||
+          Boolean(order.masterSku?.toLowerCase().includes(needle))
+        );
       })
       // Packed first, most recently packed at the very top, so a parcel that
       // just came off the printer appears where the packer is already looking.
@@ -161,6 +165,7 @@ const ScanAndPackBatch = () => {
         [INVOICE_COUNT_FIELD]: order.mapping?.invoicePages.length ?? 0,
         [PACK_STATUS_FIELD]: order.packStatus,
         [PACKED_AT_FIELD]: order.packedAt,
+        [MASTER_SKU_FIELD]: order.masterSku ?? "",
       }));
   }, [batch, search, status]);
 
@@ -327,8 +332,25 @@ const ScanAndPackBatch = () => {
       });
     }
 
+    const masterSkuColumn: GridColDef = {
+      field: MASTER_SKU_FIELD,
+      headerName: "Master SKU",
+      flex: 1,
+      minWidth: 150,
+      resizable: true,
+      renderCell: (params) => (
+        <Typography
+          sx={{ fontSize: 12, fontWeight: params.value ? 600 : 400, color: params.value ? "text.primary" : "text.disabled" }}
+          title={params.value || "No master SKU mapped for this SKU"}
+        >
+          {params.value || "—"}
+        </Typography>
+      ),
+    };
+
     return [
       ...sheetColumns,
+      masterSkuColumn,
       ...partColumns,
       {
         field: MAPPED_FIELD,

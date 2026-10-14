@@ -1,6 +1,7 @@
 import { Box, Chip, CircularProgress, Typography } from "@mui/material";
 import { GridActionsCellItem, type GridColDef } from "@mui/x-data-grid";
 import {
+  AccountTreeOutlined,
   DeleteOutline,
   FileDownloadOutlined,
   UploadFileOutlined,
@@ -14,6 +15,7 @@ import { Page } from "./Page";
 import DataTable from "../components/common/DataTable";
 import ButtonElement from "../components/common/Button";
 import UploadSessionModal from "../components/ScanAndPack/UploadSessionModal";
+import SkuMappingModal from "../components/ScanAndPack/SkuMappingModal";
 import ConfirmationDialog from "../components/common/ConfirmationDialog";
 import { getPlatform } from "../utils/scan-and-pack/platforms";
 import { PacklogService, adaptPacklogDetail } from "../api/packlog-service";
@@ -39,6 +41,7 @@ const ScanAndPack = () => {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [skuMappingOpen, setSkuMappingOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<BatchRow | null>(null);
   const [deleting, setDeleting] = useState(false);
   /** Packlog currently being exported, so only that row shows a spinner. */
@@ -299,6 +302,25 @@ const ScanAndPack = () => {
           </Typography>
         </Box>
 
+        <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+        <ButtonElement
+          type="button"
+          variant="outlined"
+          startIcon={<AccountTreeOutlined sx={{ fontSize: 14 }} />}
+          onClick={() => setSkuMappingOpen(true)}
+          sx={{
+            color: "primary.main",
+            textTransform: "none",
+            fontSize: 13,
+            fontWeight: 600,
+            height: 32,
+            px: 2,
+            whiteSpace: "nowrap",
+            "& .MuiButton-startIcon": { mr: 0.5 },
+          }}
+        >
+          SKU Mapping
+        </ButtonElement>
         <ButtonElement
           type="button"
           variant="contained"
@@ -317,6 +339,7 @@ const ScanAndPack = () => {
         >
           Upload Packlog files
         </ButtonElement>
+        </Box>
       </Box>
 
       <DataTable
@@ -353,6 +376,10 @@ const ScanAndPack = () => {
             void load();
           }}
         />
+      )}
+
+      {skuMappingOpen && (
+        <SkuMappingModal open={skuMappingOpen} onClose={() => setSkuMappingOpen(false)} />
       )}
 
       {pendingDelete && (
