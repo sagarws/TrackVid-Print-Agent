@@ -17,8 +17,8 @@ export interface SortOption {
   label: string;
 }
 
-const SKU_HEADERS = ["sku", "skus", "listing sku", "listing skus"];
-const CARRIER_HEADERS = [
+export const SKU_HEADERS = ["sku", "skus", "listing sku", "listing skus"];
+export const CARRIER_HEADERS = [
   "carrier name",
   "carrier",
   "courier name",

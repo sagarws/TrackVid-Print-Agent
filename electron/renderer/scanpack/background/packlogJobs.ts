@@ -9,6 +9,7 @@
  */
 import { useSyncExternalStore } from "react";
 import toast from "react-hot-toast";
+import { BUNDLE_LABELS, buildBundleGroups, type BundleBy } from "../utils/scan-and-pack/bundles";
 import { PacklogService, adaptPacklogDetail } from "../api/packlog-service";
 import {
   announcePacklogResult,
@@ -156,6 +157,65 @@ export const startSortedLabelsDownload = (packlogObjectId: string, packlogId: st
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not build the PDF.";
+      toast.error(message);
+      finish(id, { status: "error", message });
+    }
+  })();
+};
+
+/**
+ * A packlog's labels as a ZIP of PDFs, one per SKU / master SKU / carrier, or
+ * per distribution code in chunks of `groupSize` (one folder per code). Built
+ * and saved by the agent in the background.
+ */
+export const startBundlesDownload = (
+  packlogObjectId: string,
+  packlogId: string,
+  options: { by: BundleBy; groupSize: number }
+) => {
+  const running = jobs.find(
+    (job) => job.kind === "download" && job.packlogObjectId === packlogObjectId && job.status === "running"
+  );
+  if (running) {
+    toast(`The labels of ${packlogId} are already being prepared.`);
+    return;
+  }
+  const byLabel = BUNDLE_LABELS[options.by];
+  const id = add({ kind: "download", title: `Label bundles — ${packlogId}`, subtitle: `By ${byLabel}`, packlogObjectId });
+  void (async () => {
+    try {
+      const response = await PacklogService.getPacklog(packlogObjectId);
+      const envelope = (response as unknown as { data?: { data?: { packlog: unknown; orders: unknown[] } } })?.data
+        ?.data;
+      if (!envelope?.packlog) throw new Error("This packlog no longer exists.");
+      const batch = adaptPacklogDetail(envelope as Parameters<typeof adaptPacklogDetail>[0]);
+      const part = batch.scanMode === "invoice" ? "invoice" : "label";
+      const orders = batch.orders.filter((order) =>
+        part === "label" ? order.mapping?.labelPages.length : order.mapping?.invoicePages.length
+      );
+      if (!orders.length) throw new Error(`No order of ${packlogId} has a ${part} mapped.`);
+      const groups = buildBundleGroups(batch, orders, options.by, options.groupSize);
+      const sizeNote = options.by === "distributionCode" ? ` · ${options.groupSize} per PDF` : "";
+      update(id, {
+        subtitle: `${orders.length} ${part}(s) · ${groups.length} PDF(s) by ${byLabel}${sizeNote}`,
+        progress: { text: `Building ${groups.length} PDF(s)…` },
+      });
+
+      // Built, zipped and saved by the agent: no PDF comes into this window.
+      const saved = await PacklogService.saveBundlesZip(
+        batch.id,
+        groups,
+        [part],
+        `${packlogId}-${part}s-by-${options.by}.zip`
+      );
+      toast.success(`Saved ${saved.pdfs} PDF(s) of ${orders.length} ${part}(s) to ${saved.file}`, { duration: 6000 });
+      finish(id, {
+        status: "done",
+        message: `${saved.pdfs} PDF(s) zipped to ${saved.file}`,
+        progress: { text: "", done: orders.length, total: orders.length },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not build the ZIP.";
       toast.error(message);
       finish(id, { status: "error", message });
     }

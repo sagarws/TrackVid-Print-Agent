@@ -493,16 +493,11 @@ export const downloadPart = async (id: string, orderId: string, part: PartName):
   return at.kind === 'file' ? readStored(at.file, part) : cutPages(at.file, at.pages, part)
 }
 
-/**
- * Many orders' parts as one PDF, in the given order — the sorted download.
- * Each source PDF is read and parsed once and all its needed pages are copied
- * in one call (shared fonts/images copied once), instead of cutting, saving
- * and re-parsing a PDF per order.
- */
-export const buildPartsPdf = async (id: string, orderIds: string[], parts: PartName[]): Promise<Buffer> => {
-  const started = performance.now()
-  const entry = get(id)
-  const wanted: { file: string; pages: number[] | null; part: PartName }[] = []
+type Wanted = { file: string; pages: number[] | null; part: PartName }
+
+/** Where each part of these orders' pages live, in order. */
+const wantedFor = (entry: Entry, orderIds: string[], parts: PartName[]): Wanted[] => {
+  const wanted: Wanted[] = []
   for (const orderId of orderIds) {
     const order = orderIn(entry, orderId)
     for (const part of parts) {
@@ -520,9 +515,11 @@ export const buildPartsPdf = async (id: string, orderIds: string[], parts: PartN
       if (at) wanted.push({ file: at.file, pages: at.kind === 'ref' ? at.pages : null, part })
     }
   }
-  if (!wanted.length) throw new ScanPackError('None of these orders has a mapped PDF.', 'part_missing')
+  return wanted
+}
 
-  // Per file: the pages it is asked for (null = every page of an own file).
+/** Per file: the pages asked for, ascending (null = every page of an own file). */
+const pagesByFile = (wanted: Wanted[]) => {
   const byFile = new Map<string, { part: PartName; pages: Set<number> | null }>()
   for (const w of wanted) {
     const slot = byFile.get(w.file) ?? { part: w.part, pages: w.pages ? new Set<number>() : null }
@@ -530,34 +527,70 @@ export const buildPartsPdf = async (id: string, orderIds: string[], parts: PartN
     else slot.pages = null
     byFile.set(w.file, slot)
   }
+  return byFile
+}
 
-  const out = await PDFDocument.create()
-  const copied = new Map<string, Map<number, PDFPage>>()
-  for (const [file, slot] of byFile) {
+/**
+ * One PDF per group of orders, each in its given order — the sorted download
+ * (one group) and the bundle ZIP (a group per SKU / carrier / code). Each
+ * source PDF is read and parsed once for all groups, and a group copies its
+ * pages from a source in one call (shared fonts/images copied once per PDF),
+ * instead of cutting, saving and re-parsing a PDF per order.
+ */
+export const buildPartsPdfs = async (
+  id: string,
+  groups: { name: string; orderIds: string[] }[],
+  parts: PartName[]
+): Promise<{ name: string; data: Buffer; pages: number }[]> => {
+  const started = performance.now()
+  const entry = get(id)
+  const plans = groups.map(g => ({ name: g.name, wanted: wantedFor(entry, g.orderIds, parts) })).filter(p => p.wanted.length)
+  if (!plans.length) throw new ScanPackError('None of these orders has a mapped PDF.', 'part_missing')
+
+  const sources = new Map<string, PDFDocument>()
+  for (const [file, slot] of pagesByFile(plans.flatMap(p => p.wanted))) {
     const source = await PDFDocument.load(await readStored(file, slot.part), { parseSpeed: ParseSpeeds.Fastest })
     const count = source.getPageCount()
-    const indices = slot.pages ? [...slot.pages].filter(p => p < count).sort((a, b) => a - b) : source.getPageIndices()
+    const indices = slot.pages ? [...slot.pages].filter(p => p < count) : source.getPageIndices()
+    // Copy only what these pages draw — see pdfPrune.ts.
     for (const index of indices) prunePageResources(source.getPage(index))
-    const pages = await out.copyPages(source, indices)
-    copied.set(file, new Map(indices.map((index, i) => [index, pages[i]!])))
+    sources.set(file, source)
   }
 
-  let added = 0
-  for (const w of wanted) {
-    const pages = copied.get(w.file)!
-    const indices = w.pages ?? [...pages.keys()]
-    for (const index of indices) {
-      const page = pages.get(index)
-      if (!page) continue
-      out.addPage(page)
-      added++
+  const built: { name: string; data: Buffer; pages: number }[] = []
+  let total = 0
+  for (const plan of plans) {
+    const out = await PDFDocument.create()
+    const copied = new Map<string, Map<number, PDFPage>>()
+    for (const [file, slot] of pagesByFile(plan.wanted)) {
+      const source = sources.get(file)!
+      const count = source.getPageCount()
+      const indices = slot.pages ? [...slot.pages].filter(p => p < count).sort((a, b) => a - b) : source.getPageIndices()
+      const pages = await out.copyPages(source, indices)
+      copied.set(file, new Map(indices.map((index, i) => [index, pages[i]!])))
     }
+    let added = 0
+    for (const w of plan.wanted) {
+      const pages = copied.get(w.file)!
+      for (const index of w.pages ?? [...pages.keys()]) {
+        const page = pages.get(index)
+        if (!page) continue
+        out.addPage(page)
+        added++
+      }
+    }
+    if (!added) continue
+    built.push({ name: plan.name, data: Buffer.from(await out.save()), pages: added })
+    total += added
   }
-  if (!added) throw new ScanPackError('The mapped pages are missing from the source PDF.', 'file_missing')
-  const bytes = Buffer.from(await out.save())
-  logger.info(`[scanpack] built ${added} page(s) from ${byFile.size} file(s) in ${since(started)} ms`)
-  return bytes
+  if (!built.length) throw new ScanPackError('The mapped pages are missing from the source PDF.', 'file_missing')
+  logger.info(`[scanpack] built ${built.length} PDF(s), ${total} page(s) from ${sources.size} file(s) in ${since(started)} ms`)
+  return built
 }
+
+/** Many orders' parts as one PDF, in the given order — the sorted download. */
+export const buildPartsPdf = async (id: string, orderIds: string[], parts: PartName[]): Promise<Buffer> =>
+  (await buildPartsPdfs(id, [{ name: 'all', orderIds }], parts))[0]!.data
 
 // ---------------------------------------------------------------------------
 // Pack

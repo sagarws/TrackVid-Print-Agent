@@ -224,6 +224,18 @@ const savePartsPdf = async (
   return result.value;
 };
 
+/** One PDF per group of orders, zipped and saved by the agent to Downloads; resolves to its path. */
+const saveBundlesZip = async (
+  packlogObjectId: string,
+  groups: { name: string; orderIds: string[] }[],
+  parts: ("label" | "invoice")[],
+  fileName: string
+) => {
+  const result = await api().saveBundlesZip(packlogObjectId, groups, parts, fileName);
+  if (!result.ok) throw new Error(result.error);
+  return result.value;
+};
+
 /**
  * AGENT: save one uploaded label/invoice PDF once, in the packlog's week
  * folder. Replaces cutting and saving a PDF per order.
@@ -274,6 +286,7 @@ export const PacklogService = {
   downloadPart,
   buildPartsPdf,
   savePartsPdf,
+  saveBundlesZip,
   markPacked,
   saveSource,
   mapOrders,

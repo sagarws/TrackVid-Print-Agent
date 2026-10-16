@@ -30,6 +30,7 @@ export const SCANPACK_IPC = {
   download: 'scanpack:download',
   buildPdf: 'scanpack:build-pdf',
   savePartsPdf: 'scanpack:save-parts-pdf',
+  saveBundlesZip: 'scanpack:save-bundles-zip',
   markPacked: 'scanpack:mark-packed',
   print: 'scanpack:print',
   chooseDir: 'scanpack:choose-dir',

@@ -20,6 +20,7 @@ import {
   deletePacklog,
   downloadPart,
   buildPartsPdf,
+  buildPartsPdfs,
   getPacklog,
   listPacklogs,
   mapOrders,
@@ -33,6 +34,7 @@ import {
   storageRoot,
   uploadPart
 } from './store'
+import { zipFiles } from './zip'
 
 const isPart = (value: unknown): value is PartName => value === 'label' || value === 'invoice'
 const isText = (value: unknown): value is string => typeof value === 'string' && value.length > 0
@@ -62,14 +64,15 @@ const toBuffer = (bytes: unknown): Buffer => {
   throw new ScanPackError('Expected PDF bytes.', 'bad_request')
 }
 
-/** Write a PDF to Downloads under a free name ("name (1).pdf" when taken); returns the path. */
+/** Write a PDF (or ZIP) to Downloads under a free name ("name (1).pdf" when taken); returns the path. */
 const saveToDownloads = async (data: Buffer, fileName: string, what: string): Promise<string> => {
   const safe = safeFileName(fileName).slice(0, 150)
-  const base = safe.toLowerCase().endsWith('.pdf') ? safe.slice(0, -4) : safe
+  const ext = /\.zip$/i.test(safe) ? '.zip' : '.pdf'
+  const base = safe.toLowerCase().endsWith(ext) ? safe.slice(0, -ext.length) : safe
   const dir = app.getPath('downloads')
   await mkdir(dir, { recursive: true })
   for (let n = 0; n < 1000; n++) {
-    const file = join(dir, n ? `${base} (${n}).pdf` : `${base}.pdf`)
+    const file = join(dir, n ? `${base} (${n})${ext}` : `${base}${ext}`)
     try {
       // 'wx': fail if it exists, so two quick saves never overwrite each other.
       await writeFile(file, data, { flag: 'wx' })
@@ -214,6 +217,26 @@ export const registerScanPackIpc = (): void => {
     const data = await buildPartsPdf(String(id), orderIds.map(String), parts)
     const file = await saveToDownloads(data, isText(fileName) ? fileName : 'labels.pdf', 'Sorted download')
     return { file, bytes: data.length }
+  })
+
+  // The bundle download: one PDF per group (SKU, master SKU, carrier or
+  // distribution code chunk) zipped and saved here, never sent to the window.
+  handle(SCANPACK_IPC.saveBundlesZip, async (id: string, groups: unknown, parts: unknown, fileName: unknown) => {
+    if (!Array.isArray(groups) || !Array.isArray(parts) || !parts.length || !parts.every(isPart)) {
+      throw new ScanPackError('Expected groups of orders and label/invoice parts.', 'bad_request')
+    }
+    const clean = groups
+      .filter((g): g is Record<string, unknown> => Boolean(g) && typeof g === 'object')
+      .map(g => ({
+        name: isText(g['name']) ? g['name'] : 'labels.pdf',
+        orderIds: Array.isArray(g['orderIds']) ? g['orderIds'].map(String) : []
+      }))
+      .filter(g => g.orderIds.length)
+    if (!clean.length) throw new ScanPackError('No order to bundle.', 'bad_request')
+    const pdfs = await buildPartsPdfs(String(id), clean, parts)
+    const data = zipFiles(pdfs)
+    const file = await saveToDownloads(data, isText(fileName) ? fileName : 'labels.zip', 'Bundle download')
+    return { file, bytes: data.length, pdfs: pdfs.length }
   })
 
   // SKU Mapping: the master-sku table, merged from each sheet without duplicates.

@@ -64,6 +64,13 @@ const api = {
       fileName: string
     ): Promise<Result<{ file: string; bytes: number }>> =>
       ipcRenderer.invoke(SCANPACK_IPC.savePartsPdf, id, orderIds, parts, fileName),
+    saveBundlesZip: (
+      id: string,
+      groups: { name: string; orderIds: string[] }[],
+      parts: PartName[],
+      fileName: string
+    ): Promise<Result<{ file: string; bytes: number; pdfs: number }>> =>
+      ipcRenderer.invoke(SCANPACK_IPC.saveBundlesZip, id, groups, parts, fileName),
     markPacked: (id: string, orderId: string): Promise<Result<unknown>> =>
       ipcRenderer.invoke(SCANPACK_IPC.markPacked, id, orderId),
     saveSource: (id: string, docId: string, name: string, bytes: Uint8Array, pageCount: number): Promise<Result<unknown>> =>

@@ -8,10 +8,11 @@ import type { PacklogSortKey } from "@shared/types/scanpack";
 import DataTable from "../common/DataTable";
 import ConfirmationDialog from "../common/ConfirmationDialog";
 import SortedPrintModal from "./SortedPrintModal";
+import LabelDownloadModal from "./LabelDownloadModal";
 import { getPlatform } from "../../utils/scan-and-pack/platforms";
 import { PacklogService } from "../../api/packlog-service";
 import { saveSort, sortLabel, sortOptions, type SortKey } from "../../utils/scan-and-pack/sort";
-import { startSortedLabelsDownload, useFinishedCount } from "../../background/packlogJobs";
+import { useFinishedCount } from "../../background/packlogJobs";
 import { handled, isActive, latestJobByPacklog, useExtractionJobs } from "../../background/extractionJobs";
 import { SCANPACK_PART_LABELS } from "../../config/constant";
 import type { ScanMode } from "../../types/scanAndPack.types";
@@ -145,6 +146,7 @@ const PacklogListTable = ({ sortedOnly = false, onOpen, refreshKey = 0, height }
 
   /** Packlog whose sorted labels are about to be printed (the printer picker is open). */
   const [printing, setPrinting] = useState<BatchRow | null>(null);
+  const [downloading, setDownloading] = useState<BatchRow | null>(null);
   /** Packlog whose sort is being saved. */
   const [savingSortId, setSavingSortId] = useState<string | null>(null);
 
@@ -339,12 +341,11 @@ const PacklogListTable = ({ sortedOnly = false, onOpen, refreshKey = 0, height }
             key="download-labels"
             icon={<FileDownloadOutlined sx={{ width: 18, height: 18, color: "primary.main" }} />}
             label="Download labels"
-            title="Download all labels, sorted"
+            title="Download labels as a ZIP of bundles"
             disabled={(params.row as BatchRow).mapped === 0}
             onClick={(event) => {
               event.stopPropagation();
-              const row = params.row as BatchRow;
-              startSortedLabelsDownload(row.id, row.batchId);
+              setDownloading(params.row as BatchRow);
             }}
             // DataGrid v8 dropped `sx` from this component's type but still
             // forwards it to the IconButton; a spread skips the excess-prop check.
@@ -414,6 +415,21 @@ const PacklogListTable = ({ sortedOnly = false, onOpen, refreshKey = 0, height }
             mapped: printing.mapped,
             sortLabel: sortLabel(printing.sortKey),
             scanMode: printing.scanMode,
+          }}
+        />
+      )}
+
+      {downloading && (
+        <LabelDownloadModal
+          open={Boolean(downloading)}
+          onClose={() => setDownloading(null)}
+          packlog={{
+            id: downloading.id,
+            batchId: downloading.batchId,
+            mapped: downloading.mapped,
+            sortKey: downloading.sortKey,
+            platformKey: downloading.platformKey,
+            scanMode: downloading.scanMode,
           }}
         />
       )}
