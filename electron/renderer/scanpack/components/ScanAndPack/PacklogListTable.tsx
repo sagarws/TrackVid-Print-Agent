@@ -1,6 +1,6 @@
 import { Box, Chip, CircularProgress, LinearProgress, MenuItem, Stack, TextField, Typography } from "@mui/material";
 import { GridActionsCellItem, type GridColDef } from "@mui/x-data-grid";
-import { DeleteOutline, FileDownloadOutlined, PictureAsPdfOutlined, PrintOutlined, VisibilityOutlined } from "@mui/icons-material";
+import { DeleteOutline, FileDownloadOutlined, PrintOutlined, VisibilityOutlined } from "@mui/icons-material";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { format } from "date-fns";
 import toast from "react-hot-toast";
@@ -9,8 +9,7 @@ import DataTable from "../common/DataTable";
 import ConfirmationDialog from "../common/ConfirmationDialog";
 import SortedPrintModal from "./SortedPrintModal";
 import { getPlatform } from "../../utils/scan-and-pack/platforms";
-import { PacklogService, adaptPacklogDetail } from "../../api/packlog-service";
-import { exportBatchXlsx } from "../../utils/scan-and-pack/export";
+import { PacklogService } from "../../api/packlog-service";
 import { saveSort, sortLabel, sortOptions, type SortKey } from "../../utils/scan-and-pack/sort";
 import { startSortedLabelsDownload, useFinishedCount } from "../../background/packlogJobs";
 import { handled, isActive, latestJobByPacklog, useExtractionJobs } from "../../background/extractionJobs";
@@ -57,8 +56,6 @@ const PacklogListTable = ({ sortedOnly = false, onOpen, refreshKey = 0, height }
   const jobByPacklog = useMemo(() => latestJobByPacklog(extractionJobs), [extractionJobs]);
   const [pendingDelete, setPendingDelete] = useState<BatchRow | null>(null);
   const [deleting, setDeleting] = useState(false);
-  /** Packlog currently being exported, so only that row shows a spinner. */
-  const [exportingId, setExportingId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
 
@@ -145,26 +142,6 @@ const PacklogListTable = ({ sortedOnly = false, onOpen, refreshKey = 0, height }
       setDeleting(false);
     }
   };
-
-  // The list row only carries counts, so the export pulls the full packlog
-  // (orders + mappings) the same way its detail page does.
-  const handleExport = useCallback(async (row: BatchRow) => {
-    setExportingId(row.id);
-    try {
-      const response = await PacklogService.getPacklog(row.id);
-      const envelope = (
-        response as unknown as { data?: { data?: { packlog: unknown; orders: unknown[] } } }
-      )?.data?.data;
-      if (!envelope?.packlog) throw new Error("This packlog no longer exists.");
-      exportBatchXlsx(adaptPacklogDetail(envelope as any));
-    } catch (error) {
-      if (aliveRef.current) {
-        toast.error(error instanceof Error ? error.message : "Could not export this packlog.");
-      }
-    } finally {
-      if (aliveRef.current) setExportingId(null);
-    }
-  }, []);
 
   /** Packlog whose sorted labels are about to be printed (the printer picker is open). */
   const [printing, setPrinting] = useState<BatchRow | null>(null);
@@ -342,7 +319,7 @@ const PacklogListTable = ({ sortedOnly = false, onOpen, refreshKey = 0, height }
         field: "actions",
         headerName: "Actions",
         type: "actions",
-        width: 200,
+        width: 170,
         getActions: (params) => [
           <GridActionsCellItem
             key="print-sorted"
@@ -359,29 +336,9 @@ const PacklogListTable = ({ sortedOnly = false, onOpen, refreshKey = 0, height }
             {...{ sx: { margin: "0 2px", padding: "4px", borderRadius: "6px", "&:hover": { backgroundColor: "rgba(0,136,163,0.08)" } } }}
           />,
           <GridActionsCellItem
-            key="export"
-            icon={
-              exportingId === params.row.id ? (
-                <CircularProgress size={16} />
-              ) : (
-                <FileDownloadOutlined sx={{ width: 18, height: 18, color: "primary.main" }} />
-              )
-            }
-            label="Export"
-            title="Export to Excel"
-            disabled={exportingId !== null}
-            onClick={(event) => {
-              event.stopPropagation();
-              void handleExport(params.row as BatchRow);
-            }}
-            // DataGrid v8 dropped `sx` from this component's type but still
-            // forwards it to the IconButton; a spread skips the excess-prop check.
-            {...{ sx: { margin: "0 2px", padding: "4px", borderRadius: "6px", "&:hover": { backgroundColor: "rgba(0,136,163,0.08)" } } }}
-          />,
-          <GridActionsCellItem
-            key="sorted-labels"
-            icon={<PictureAsPdfOutlined sx={{ width: 18, height: 18, color: "primary.main" }} />}
-            label="Download sorted labels"
+            key="download-labels"
+            icon={<FileDownloadOutlined sx={{ width: 18, height: 18, color: "primary.main" }} />}
+            label="Download labels"
             title="Download all labels, sorted"
             disabled={(params.row as BatchRow).mapped === 0}
             onClick={(event) => {
@@ -420,7 +377,7 @@ const PacklogListTable = ({ sortedOnly = false, onOpen, refreshKey = 0, height }
         ],
       },
     ],
-    [onOpen, exportingId, handleExport, jobByPacklog, savingSortId, changeSort]
+    [onOpen, jobByPacklog, savingSortId, changeSort]
   );
 
   return (

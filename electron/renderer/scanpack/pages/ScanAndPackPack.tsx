@@ -695,16 +695,15 @@ const ScanAndPackPack = () => {
     }
     setBulkRun({ mode: "download", done: 0, total: queue.length });
     try {
-      const { PDFDocument } = await import("pdf-lib");
-      const out = await PDFDocument.create();
-      for (const [i, order] of queue.entries()) {
-        const source = await PDFDocument.load(await fetchOrderBytes(batch.id, order, part));
-        const pages = await out.copyPages(source, source.getPageIndices());
-        pages.forEach((page) => out.addPage(page));
-        if (aliveRef.current) setBulkRun({ mode: "download", done: i + 1, total: queue.length });
-      }
+      // One pass in the agent: each source PDF is parsed once, not once per order.
+      const bytes = await PacklogService.buildPartsPdf(
+        batch.id,
+        queue.map((o) => o.id),
+        part === "both" ? ["label", "invoice"] : [part]
+      );
+      if (aliveRef.current) setBulkRun({ mode: "download", done: queue.length, total: queue.length });
       const fileName = `${pickedMaster.master.replace(/[\\/:*?"<>|]+/g, "_")}-${part}.pdf`;
-      downloadPdf(await out.save(), fileName);
+      downloadPdf(bytes, fileName);
       if (aliveRef.current) toast.success(`Downloaded ${queue.length} order(s) of ${pickedMaster.master}.`);
     } catch (err) {
       if (aliveRef.current) toast.error(err instanceof Error ? err.message : "Could not build the PDF.");

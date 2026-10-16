@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { app } from 'electron'
-import { ParseSpeeds, PDFDocument } from 'pdf-lib'
+import { ParseSpeeds, PDFDocument, type PDFPage } from 'pdf-lib'
 import type {
   CreatePacklogInput,
   PacklogSortKey,
@@ -491,6 +491,72 @@ export const downloadPart = async (id: string, orderId: string, part: PartName):
   const at = locate(entry, orderIn(entry, orderId), part)
   if (!at) throw new ScanPackError(`This order has no ${part} PDF.`, 'part_missing')
   return at.kind === 'file' ? readStored(at.file, part) : cutPages(at.file, at.pages, part)
+}
+
+/**
+ * Many orders' parts as one PDF, in the given order — the sorted download.
+ * Each source PDF is read and parsed once and all its needed pages are copied
+ * in one call (shared fonts/images copied once), instead of cutting, saving
+ * and re-parsing a PDF per order.
+ */
+export const buildPartsPdf = async (id: string, orderIds: string[], parts: PartName[]): Promise<Buffer> => {
+  const started = performance.now()
+  const entry = get(id)
+  const wanted: { file: string; pages: number[] | null; part: PartName }[] = []
+  for (const orderId of orderIds) {
+    const order = orderIn(entry, orderId)
+    for (const part of parts) {
+      // The source PDF first, even when the order also has its own cut PDF:
+      // every label of a source shares its fonts and images, so building from
+      // the source copies them once. Building from 1,500 own files copied them
+      // 1,500 times — a PDF of gigabytes that ran the agent out of memory.
+      const ref = part === 'label' ? order.labelRef : order.invoiceRef
+      const source = ref && entry.packlog.sources?.find(s => s.docId === ref.docId)
+      if (ref && source && existsSync(source.file)) {
+        wanted.push({ file: source.file, pages: ref.pages, part })
+        continue
+      }
+      const at = locate(entry, order, part)
+      if (at) wanted.push({ file: at.file, pages: at.kind === 'ref' ? at.pages : null, part })
+    }
+  }
+  if (!wanted.length) throw new ScanPackError('None of these orders has a mapped PDF.', 'part_missing')
+
+  // Per file: the pages it is asked for (null = every page of an own file).
+  const byFile = new Map<string, { part: PartName; pages: Set<number> | null }>()
+  for (const w of wanted) {
+    const slot = byFile.get(w.file) ?? { part: w.part, pages: w.pages ? new Set<number>() : null }
+    if (w.pages && slot.pages) w.pages.forEach(p => slot.pages!.add(p))
+    else slot.pages = null
+    byFile.set(w.file, slot)
+  }
+
+  const out = await PDFDocument.create()
+  const copied = new Map<string, Map<number, PDFPage>>()
+  for (const [file, slot] of byFile) {
+    const source = await PDFDocument.load(await readStored(file, slot.part), { parseSpeed: ParseSpeeds.Fastest })
+    const count = source.getPageCount()
+    const indices = slot.pages ? [...slot.pages].filter(p => p < count).sort((a, b) => a - b) : source.getPageIndices()
+    for (const index of indices) prunePageResources(source.getPage(index))
+    const pages = await out.copyPages(source, indices)
+    copied.set(file, new Map(indices.map((index, i) => [index, pages[i]!])))
+  }
+
+  let added = 0
+  for (const w of wanted) {
+    const pages = copied.get(w.file)!
+    const indices = w.pages ?? [...pages.keys()]
+    for (const index of indices) {
+      const page = pages.get(index)
+      if (!page) continue
+      out.addPage(page)
+      added++
+    }
+  }
+  if (!added) throw new ScanPackError('The mapped pages are missing from the source PDF.', 'file_missing')
+  const bytes = Buffer.from(await out.save())
+  logger.info(`[scanpack] built ${added} page(s) from ${byFile.size} file(s) in ${since(started)} ms`)
+  return bytes
 }
 
 // ---------------------------------------------------------------------------

@@ -28,27 +28,27 @@ import type { ScanMode } from "../types/scanAndPack.types";
 
 const STEPS = [
   { label: "Platform", hint: "Select the platform" },
-  { label: "Sorting", hint: "Configure sorting options" },
-  { label: "Upload packlog files", hint: "Add and manage files" },
+  { label: "Sorting", hint: "Sorting options" },
+  { label: "Upload files", hint: "Add packlog files" },
 ];
 
 const SECTIONS: { title: string; hint: string; icon: ReactNode; tip?: string }[] = [
   {
     title: "1. Select Platform",
-    hint: "Platform to sort the labels for.",
-    icon: <GridViewRounded sx={{ fontSize: 17 }} />,
-    tip: "Pick the platform you're working with — it sets the sorting rules and label format.",
+    hint: "Choose the platform you want to sort the labels for.",
+    icon: <GridViewRounded sx={{ fontSize: 18 }} />,
+    tip: "Select the platform you're working with. This applies the correct sorting rules and label format.",
   },
   {
     title: "2. Choose Sorting",
-    hint: "Order the labels come out in.",
-    icon: <SortRounded sx={{ fontSize: 17 }} />,
+    hint: "Pick the order the labels come out in.",
+    icon: <SortRounded sx={{ fontSize: 18 }} />,
     tip: "Labels download in this order, so packers can work through them group by group.",
   },
   {
     title: "3. Upload Packlog Files",
-    hint: "Order list and label PDFs.",
-    icon: <UploadFileOutlined sx={{ fontSize: 17 }} />,
+    hint: "Add the order list and the label PDFs.",
+    icon: <UploadFileOutlined sx={{ fontSize: 18 }} />,
   },
 ];
 
@@ -58,14 +58,15 @@ const SORT_DETAILS: Record<PacklogSortKey, { hint: string; icon: ReactNode }> = 
   distributionCode: { hint: "Flipkart's B1 / C1 box beside the bottom barcode.", icon: <QrCode2Outlined /> },
 };
 
-const buttonSx = { textTransform: "none", fontSize: 13, fontWeight: 600, px: 1.75, minHeight: 30, borderRadius: "8px" } as const;
+const buttonSx = { textTransform: "none", fontSize: 13, fontWeight: 600, px: 2, minHeight: 34, borderRadius: "8px" } as const;
+const cardSx = { borderRadius: "12px", boxShadow: "0 1px 3px rgba(16,24,40,0.04)" } as const;
 
 /** Rounded square tinted with the primary colour, holding an icon. */
 const IconTile = ({ children }: { children: ReactNode }) => (
   <Box
     sx={{
-      width: 30,
-      height: 30,
+      width: 34,
+      height: 34,
       flexShrink: 0,
       borderRadius: "8px",
       display: "grid",
@@ -80,7 +81,7 @@ const IconTile = ({ children }: { children: ReactNode }) => (
 
 /** Numbered steps with a subtitle each, connectors, and an underline under the active one. */
 const StepHeader = ({ step }: { step: number }) => (
-  <Box sx={{ display: "flex", flex: 1, minWidth: 0 }}>
+  <Paper variant="outlined" sx={{ ...cardSx, display: "flex", px: 2, mb: 1.5, overflow: "hidden" }}>
     {STEPS.map((s, i) => {
       const done = i < step;
       const active = i === step;
@@ -91,37 +92,34 @@ const StepHeader = ({ step }: { step: number }) => (
           direction="row"
           alignItems="center"
           spacing={1}
-          sx={{ flex: last ? "0 0 auto" : 1, py: 1, position: "relative", minWidth: 0 }}
+          sx={{ flex: last ? "0 0 auto" : 1, py: 1.25, position: "relative", minWidth: 0 }}
         >
           <Box
             sx={{
-              width: 22,
-              height: 22,
+              width: 24,
+              height: 24,
               flexShrink: 0,
               borderRadius: "50%",
               display: "grid",
               placeItems: "center",
-              fontSize: 11.5,
+              fontSize: 12,
               fontWeight: 700,
               color: "white",
               bgcolor: active || done ? "primary.main" : "grey.400",
             }}
           >
-            {done ? <Check sx={{ fontSize: 14 }} /> : i + 1}
+            {done ? <Check sx={{ fontSize: 15 }} /> : i + 1}
           </Box>
           <Box sx={{ minWidth: 0 }}>
-            <Typography
-              noWrap
-              sx={{ fontSize: 12.5, fontWeight: 700, lineHeight: 1.3, color: active ? "text.primary" : "text.secondary" }}
-            >
+            <Typography noWrap sx={{ fontSize: 13, fontWeight: 700, color: active ? "text.primary" : "text.secondary" }}>
               {s.label}
             </Typography>
-            <Typography noWrap sx={{ fontSize: 10.5, lineHeight: 1.3, color: "text.secondary" }}>
+            <Typography noWrap sx={{ fontSize: 11, color: "text.secondary" }}>
               {s.hint}
             </Typography>
           </Box>
           {!last && (
-            <Box sx={{ flex: 1, height: "1px", mx: 1.5, minWidth: 24, bgcolor: done ? "primary.main" : "divider" }} />
+            <Box sx={{ flex: 1, height: "1px", mx: 1.25, minWidth: 16, bgcolor: done ? "primary.main" : "divider" }} />
           )}
           {active && (
             <Box
@@ -129,7 +127,7 @@ const StepHeader = ({ step }: { step: number }) => (
                 position: "absolute",
                 left: 0,
                 bottom: 0,
-                width: 150,
+                width: 130,
                 height: 2,
                 borderRadius: 1,
                 bgcolor: "primary.main",
@@ -139,7 +137,7 @@ const StepHeader = ({ step }: { step: number }) => (
         </Stack>
       );
     })}
-  </Box>
+  </Paper>
 );
 
 /**
@@ -186,114 +184,54 @@ const LabelSortingPage = ({ onOpenPacklog }: { onOpenPacklog: (packlogObjectId: 
       title="Label Sorting"
       sx={{ height: "calc(100vh - 104px)", minHeight: 520, display: "flex", flexDirection: "column" }}
     >
-      <Stack direction="row" alignItems="center" spacing={1.25} sx={{ mb: 1.25, flexShrink: 0 }}>
+      <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 1.5, flexShrink: 0 }}>
         <Box
           sx={{
-            width: 34,
-            height: 34,
+            width: 40,
+            height: 40,
             flexShrink: 0,
-            borderRadius: "9px",
+            borderRadius: "10px",
             display: "grid",
             placeItems: "center",
             color: "white",
             background: (t) => `linear-gradient(135deg, ${alpha(t.palette.primary.main, 0.7)}, ${t.palette.primary.main})`,
-            boxShadow: (t) => `0 3px 10px ${alpha(t.palette.primary.main, 0.3)}`,
+            boxShadow: (t) => `0 4px 12px ${alpha(t.palette.primary.main, 0.3)}`,
           }}
         >
-          <SellOutlined sx={{ fontSize: 18 }} />
+          <SellOutlined sx={{ fontSize: 20 }} />
         </Box>
         <Box>
-          <Typography sx={{ fontSize: "1.1rem", fontWeight: 700, color: "text.primary", lineHeight: 1.25 }}>
+          <Typography sx={{ fontSize: "1.2rem", fontWeight: 700, color: "text.primary", lineHeight: 1.25 }}>
             Label Sorting
           </Typography>
-          <Typography sx={{ fontSize: 12, color: "text.secondary" }}>
+          <Typography sx={{ fontSize: 12.5, color: "text.secondary" }}>
             Choose a platform and a sort, upload the packlog files, then download every label in that order.
           </Typography>
         </Box>
       </Stack>
 
-      {/* One card: steps + Back/Next on top, the current step's fields in a single row below. */}
-      <Paper
-        variant="outlined"
-        sx={{ borderRadius: "12px", overflow: "hidden", flexShrink: 0, mb: 1.5, boxShadow: "0 1px 3px rgba(16,24,40,0.04)" }}
-      >
-        <Stack
-          direction="row"
-          alignItems="center"
-          spacing={2}
-          sx={{ px: 1.5, borderBottom: (t) => `1px solid ${t.palette.divider}` }}
-        >
-          <StepHeader step={step} />
-          <Stack direction="row" spacing={1} sx={{ flexShrink: 0 }}>
-            <ButtonElement
-              type="button"
-              variant="outlined"
-              size="small"
-              disabled={step === 0}
-              onClick={() => setStep((s) => s - 1)}
-              startIcon={<ArrowBack sx={{ fontSize: 14 }} />}
-              sx={{ ...buttonSx, color: "text.primary" }}
-            >
-              Back
-            </ButtonElement>
-            {step < 2 ? (
-              <ButtonElement
-                type="button"
-                variant="contained"
-                size="small"
-                disabled={!canNext}
-                onClick={() => setStep((s) => s + 1)}
-                endIcon={<ArrowForward sx={{ fontSize: 14 }} />}
-                sx={{ ...buttonSx, color: "white", minWidth: 96 }}
-              >
-                Next
-              </ButtonElement>
-            ) : (
-              <ButtonElement
-                type="button"
-                variant="contained"
-                size="small"
-                disabled={!sheetFiles.length || !pdfFiles.length}
-                onClick={create}
-                startIcon={<UploadFileOutlined sx={{ fontSize: 14 }} />}
-                sx={{ ...buttonSx, color: "white", minWidth: 136 }}
-              >
-                Create Packlog
-              </ButtonElement>
-            )}
-          </Stack>
-        </Stack>
+      {/* Steps + form take half the width on wide screens; the full width below that. */}
+      <Box sx={{ width: { xs: "100%", lg: "50%" }, flexShrink: 0, mb: 1.5 }}>
+        <StepHeader step={step} />
 
-        <Box
-          sx={{
-            display: "flex",
-            flexDirection: { xs: "column", md: "row" },
-            alignItems: { md: step === 0 ? "center" : "flex-start" },
-            gap: 1.5,
-            px: 1.5,
-            py: 1.25,
-            bgcolor: (t) => alpha(t.palette.primary.main, 0.02),
-          }}
-        >
-          <Stack direction="row" spacing={1} alignItems="center" sx={{ width: { md: 230 }, flexShrink: 0 }}>
-            <IconTile>{section.icon}</IconTile>
-            <Box sx={{ minWidth: 0 }}>
-              <Typography sx={{ fontSize: 13, fontWeight: 700, color: "text.primary", lineHeight: 1.3 }}>
-                {section.title}
-              </Typography>
-              <Typography sx={{ fontSize: 11.5, color: "text.secondary", lineHeight: 1.3 }}>
-                {step === 2 ? (
-                  <>
-                    {platformLabel} · sorted by <b>{sorts.find((o) => o.key === sortKey)?.label}</b>
-                  </>
-                ) : (
-                  section.hint
-                )}
-              </Typography>
-            </Box>
-          </Stack>
+        <Paper variant="outlined" sx={{ ...cardSx, overflow: "hidden" }}>
+          <Stack spacing={1.5} sx={{ p: 1.75, bgcolor: (t) => alpha(t.palette.primary.main, 0.02) }}>
+            <Stack direction="row" spacing={1.25} alignItems="center">
+              <IconTile>{section.icon}</IconTile>
+              <Box>
+                <Typography sx={{ fontSize: 14, fontWeight: 700, color: "text.primary" }}>{section.title}</Typography>
+                <Typography sx={{ fontSize: 12, color: "text.secondary" }}>
+                  {step === 2 ? (
+                    <>
+                      {platformLabel} · sorted by <b>{sorts.find((o) => o.key === sortKey)?.label}</b>
+                    </>
+                  ) : (
+                    section.hint
+                  )}
+                </Typography>
+              </Box>
+            </Stack>
 
-          <Stack spacing={1} sx={{ flex: 1, minWidth: 0, width: { xs: "100%", md: "auto" } }}>
             {step === 0 && (
               <TextField
                 select
@@ -303,11 +241,11 @@ const LabelSortingPage = ({ onOpenPacklog }: { onOpenPacklog: (packlogObjectId: 
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">
-                      <ShoppingCartOutlined sx={{ fontSize: 17, color: "primary.main" }} />
+                      <ShoppingCartOutlined sx={{ fontSize: 18, color: "primary.main" }} />
                     </InputAdornment>
                   ),
                 }}
-                sx={{ "& .MuiOutlinedInput-root": { borderRadius: "8px", bgcolor: "background.paper", fontSize: 13.5 } }}
+                sx={{ "& .MuiOutlinedInput-root": { borderRadius: "8px", bgcolor: "background.paper", fontSize: 14 } }}
               >
                 {PLATFORMS.filter((option) => option.enabled).map((option) => (
                   <MenuItem key={option.key} value={option.key}>
@@ -332,7 +270,7 @@ const LabelSortingPage = ({ onOpenPacklog }: { onOpenPacklog: (packlogObjectId: 
                           display: "block",
                           textAlign: "left",
                           px: 1.25,
-                          py: 0.75,
+                          py: 1,
                           borderRadius: "8px",
                           bgcolor: (t) => (picked ? alpha(t.palette.primary.main, 0.08) : t.palette.background.paper),
                           border: (t) => `1px solid ${picked ? t.palette.primary.main : t.palette.divider}`,
@@ -343,15 +281,15 @@ const LabelSortingPage = ({ onOpenPacklog }: { onOpenPacklog: (packlogObjectId: 
                           direction="row"
                           alignItems="center"
                           spacing={1}
-                          sx={{ color: "primary.main", "& > svg:first-of-type": { fontSize: 17 } }}
+                          sx={{ color: "primary.main", "& > svg:first-of-type": { fontSize: 18 } }}
                         >
                           {detail.icon}
-                          <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: "text.primary", flex: 1 }}>
+                          <Typography sx={{ fontSize: 13, fontWeight: 700, color: "text.primary", flex: 1 }}>
                             {option.label}
                           </Typography>
-                          {picked && <CheckCircle sx={{ fontSize: 15 }} />}
+                          {picked && <CheckCircle sx={{ fontSize: 16 }} />}
                         </Stack>
-                        <Typography sx={{ fontSize: 11, color: "text.secondary", mt: 0.25 }}>{detail.hint}</Typography>
+                        <Typography sx={{ fontSize: 11.5, color: "text.secondary", mt: 0.5 }}>{detail.hint}</Typography>
                       </ButtonBase>
                     );
                   })}
@@ -379,34 +317,86 @@ const LabelSortingPage = ({ onOpenPacklog }: { onOpenPacklog: (packlogObjectId: 
                 <PacklogUploadInfo />
               </>
             )}
+
+            {section.tip && (
+              <Stack
+                direction="row"
+                spacing={1.25}
+                alignItems="center"
+                sx={{
+                  p: 1.25,
+                  borderRadius: "10px",
+                  border: (t) => `1px solid ${alpha(t.palette.primary.main, 0.15)}`,
+                  bgcolor: (t) => alpha(t.palette.primary.main, 0.05),
+                }}
+              >
+                <Box
+                  sx={{
+                    width: 28,
+                    height: 28,
+                    flexShrink: 0,
+                    borderRadius: "50%",
+                    display: "grid",
+                    placeItems: "center",
+                    color: "primary.main",
+                    bgcolor: (t) => alpha(t.palette.primary.main, 0.12),
+                  }}
+                >
+                  <LightbulbOutlined sx={{ fontSize: 16 }} />
+                </Box>
+                <Box>
+                  <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: "primary.main" }}>Quick Tip</Typography>
+                  <Typography sx={{ fontSize: 11.5, color: "text.secondary" }}>{section.tip}</Typography>
+                </Box>
+              </Stack>
+            )}
           </Stack>
 
-          {section.tip && (
-            <Stack
-              direction="row"
-              spacing={1}
-              alignItems="center"
-              sx={{
-                width: { xs: "100%", md: 300 },
-                flexShrink: 0,
-                px: 1.25,
-                py: 0.75,
-                borderRadius: "8px",
-                border: (t) => `1px solid ${alpha(t.palette.primary.main, 0.15)}`,
-                bgcolor: (t) => alpha(t.palette.primary.main, 0.05),
-              }}
+          <Stack
+            direction="row"
+            spacing={1}
+            justifyContent="space-between"
+            sx={{ px: 1.75, py: 1.25, borderTop: (t) => `1px solid ${t.palette.divider}` }}
+          >
+            <ButtonElement
+              type="button"
+              variant="outlined"
+              size="small"
+              disabled={step === 0}
+              onClick={() => setStep((s) => s - 1)}
+              startIcon={<ArrowBack sx={{ fontSize: 14 }} />}
+              sx={{ ...buttonSx, color: "text.primary" }}
             >
-              <LightbulbOutlined sx={{ fontSize: 18, color: "primary.main", flexShrink: 0 }} />
-              <Typography sx={{ fontSize: 11.5, color: "text.secondary", lineHeight: 1.35 }}>
-                <Box component="span" sx={{ fontWeight: 700, color: "primary.main" }}>
-                  Quick Tip:{" "}
-                </Box>
-                {section.tip}
-              </Typography>
-            </Stack>
-          )}
-        </Box>
-      </Paper>
+              Back
+            </ButtonElement>
+            {step < 2 ? (
+              <ButtonElement
+                type="button"
+                variant="contained"
+                size="small"
+                disabled={!canNext}
+                onClick={() => setStep((s) => s + 1)}
+                endIcon={<ArrowForward sx={{ fontSize: 14 }} />}
+                sx={{ ...buttonSx, color: "white", minWidth: 110 }}
+              >
+                Next
+              </ButtonElement>
+            ) : (
+              <ButtonElement
+                type="button"
+                variant="contained"
+                size="small"
+                disabled={!sheetFiles.length || !pdfFiles.length}
+                onClick={create}
+                startIcon={<UploadFileOutlined sx={{ fontSize: 14 }} />}
+                sx={{ ...buttonSx, color: "white", minWidth: 140 }}
+              >
+                Create Packlog
+              </ButtonElement>
+            )}
+          </Stack>
+        </Paper>
+      </Box>
 
       <Typography sx={{ fontSize: 14, fontWeight: 700, mb: 1, flexShrink: 0 }}>Sorted packlogs</Typography>
       {/* The list fills what the card leaves; the grid scrolls its own rows. */}

@@ -28,6 +28,8 @@ export const SCANPACK_IPC = {
   remove: 'scanpack:delete',
   upload: 'scanpack:upload',
   download: 'scanpack:download',
+  buildPdf: 'scanpack:build-pdf',
+  savePartsPdf: 'scanpack:save-parts-pdf',
   markPacked: 'scanpack:mark-packed',
   print: 'scanpack:print',
   chooseDir: 'scanpack:choose-dir',

@@ -201,6 +201,29 @@ const downloadPart = async (
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 };
 
+/** Many orders' parts as one PDF, in the given order, built in one pass by the agent. */
+const buildPartsPdf = async (
+  packlogObjectId: string,
+  orderObjectIds: string[],
+  parts: ("label" | "invoice")[]
+): Promise<Uint8Array> => {
+  const result = await api().buildPdf(packlogObjectId, orderObjectIds, parts);
+  if (!result.ok) throw new Error(result.error);
+  return result.value;
+};
+
+/** The same PDF, saved by the agent straight to Downloads; resolves to its path. */
+const savePartsPdf = async (
+  packlogObjectId: string,
+  orderObjectIds: string[],
+  parts: ("label" | "invoice")[],
+  fileName: string
+) => {
+  const result = await api().savePartsPdf(packlogObjectId, orderObjectIds, parts, fileName);
+  if (!result.ok) throw new Error(result.error);
+  return result.value;
+};
+
 /**
  * AGENT: save one uploaded label/invoice PDF once, in the packlog's week
  * folder. Replaces cutting and saving a PDF per order.
@@ -249,6 +272,8 @@ export const PacklogService = {
   deletePacklog,
   uploadPart,
   downloadPart,
+  buildPartsPdf,
+  savePartsPdf,
   markPacked,
   saveSource,
   mapOrders,

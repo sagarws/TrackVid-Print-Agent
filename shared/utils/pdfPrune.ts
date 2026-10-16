@@ -1,4 +1,4 @@
-import { decodePDFRawStream, PDFArray, PDFDict, PDFName, PDFRawStream, type PDFPage } from 'pdf-lib'
+import { decodePDFRawStream, PDFArray, PDFDict, PDFName, PDFRawStream, type PDFContext, type PDFPage } from 'pdf-lib'
 
 /**
  * Trim a page's resources to what it actually draws, before it is copied out.
@@ -21,15 +21,8 @@ const PRUNABLE = new Set(['XObject', 'Font', 'ExtGState', 'Pattern', 'Shading', 
 
 const latin1 = new TextDecoder('latin1')
 
-/** Every `/Name` token in the page's content, or null if it cannot be read. */
-const namesUsed = (page: PDFPage): Set<string> | null => {
-  const contents = page.node.Contents()
-  const streams: unknown[] = []
-  if (contents instanceof PDFArray) {
-    for (let i = 0; i < contents.size(); i++) streams.push(contents.lookup(i))
-  } else if (contents) {
-    streams.push(contents)
-  }
+/** Every `/Name` token in these content streams, or null if one cannot be read. */
+const namesIn = (streams: unknown[]): Set<string> | null => {
   let text = ''
   for (const stream of streams) {
     // Parsed files hold raw streams; anything else (built in memory) is left alone.
@@ -47,19 +40,26 @@ const namesUsed = (page: PDFPage): Set<string> | null => {
   return names
 }
 
+/** Every `/Name` token in the page's content, or null if it cannot be read. */
+const namesUsed = (page: PDFPage): Set<string> | null => {
+  const contents = page.node.Contents()
+  const streams: unknown[] = []
+  if (contents instanceof PDFArray) {
+    for (let i = 0; i < contents.size(); i++) streams.push(contents.lookup(i))
+  } else if (contents) {
+    streams.push(contents)
+  }
+  return namesIn(streams)
+}
+
 export interface PruneResult {
   kept: number
   dropped: number
 }
 
-export const prunePageResources = (page: PDFPage): PruneResult | null => {
-  const names = namesUsed(page)
-  const resources = page.node.Resources()
-  if (!names || !resources) return null
-  const context = page.node.context
+/** A copy of `resources` holding, per prunable category, only the names in `names`. */
+const trim = (context: PDFContext, resources: PDFDict, names: Set<string>, result: PruneResult) => {
   const trimmed = PDFDict.withContext(context)
-  let kept = 0
-  let dropped = 0
   for (const [key, value] of resources.entries()) {
     const category = key.decodeText()
     const sub = context.lookup(value)
@@ -71,13 +71,51 @@ export const prunePageResources = (page: PDFPage): PruneResult | null => {
     for (const [name, ref] of sub.entries()) {
       if (names.has(name.decodeText()) || names.has(name.asString().slice(1))) {
         only.set(name, ref)
-        kept++
+        result.kept++
       } else {
-        dropped++
+        result.dropped++
       }
     }
     trimmed.set(key, only)
   }
+  return trimmed
+}
+
+/**
+ * Form XObjects (templates) the trimmed resources still name get the same
+ * treatment against their own content. Flipkart's labels draw one template per
+ * page (`/TPL0 Do`) whose own resource dictionary is shared too — every image
+ * and font of the file — so trimming only the page still copied ~5.9 MB per
+ * label. A form's resources are trimmed by what that form itself draws, which
+ * is correct for every page that uses it, so it is done in place, once.
+ */
+const pruneForms = (context: PDFContext, resources: PDFDict, result: PruneResult, seen: Set<PDFRawStream>, depth: number) => {
+  if (depth > 8) return
+  const xobjects = context.lookup(resources.get(PDFName.of('XObject')))
+  if (!(xobjects instanceof PDFDict)) return
+  for (const [, ref] of xobjects.entries()) {
+    const form = context.lookup(ref)
+    if (!(form instanceof PDFRawStream) || seen.has(form)) continue
+    seen.add(form)
+    if (form.dict.get(PDFName.of('Subtype'))?.toString() !== '/Form') continue
+    const own = context.lookup(form.dict.get(PDFName.of('Resources')))
+    if (!(own instanceof PDFDict)) continue
+    const names = namesIn([form])
+    if (!names) continue
+    const trimmed = trim(context, own, names, result)
+    form.dict.set(PDFName.of('Resources'), trimmed)
+    pruneForms(context, trimmed, result, seen, depth + 1)
+  }
+}
+
+export const prunePageResources = (page: PDFPage): PruneResult | null => {
+  const names = namesUsed(page)
+  const resources = page.node.Resources()
+  if (!names || !resources) return null
+  const context = page.node.context
+  const result: PruneResult = { kept: 0, dropped: 0 }
+  const trimmed = trim(context, resources, names, result)
   page.node.set(PDFName.of('Resources'), trimmed)
-  return { kept, dropped }
+  pruneForms(context, trimmed, result, new Set(), 0)
+  return result
 }

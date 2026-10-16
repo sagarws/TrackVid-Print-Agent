@@ -19,6 +19,7 @@ import {
   createPacklog,
   deletePacklog,
   downloadPart,
+  buildPartsPdf,
   getPacklog,
   listPacklogs,
   mapOrders,
@@ -59,6 +60,26 @@ const toBuffer = (bytes: unknown): Buffer => {
   if (bytes instanceof Uint8Array) return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   if (bytes instanceof ArrayBuffer) return Buffer.from(bytes)
   throw new ScanPackError('Expected PDF bytes.', 'bad_request')
+}
+
+/** Write a PDF to Downloads under a free name ("name (1).pdf" when taken); returns the path. */
+const saveToDownloads = async (data: Buffer, fileName: string, what: string): Promise<string> => {
+  const safe = safeFileName(fileName).slice(0, 150)
+  const base = safe.toLowerCase().endsWith('.pdf') ? safe.slice(0, -4) : safe
+  const dir = app.getPath('downloads')
+  await mkdir(dir, { recursive: true })
+  for (let n = 0; n < 1000; n++) {
+    const file = join(dir, n ? `${base} (${n}).pdf` : `${base}.pdf`)
+    try {
+      // 'wx': fail if it exists, so two quick saves never overwrite each other.
+      await writeFile(file, data, { flag: 'wx' })
+      printPerf([`${what} saved ${Math.round(data.length / 1024)} KB → ${file}`])
+      return file
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+    }
+  }
+  throw new ScanPackError('Too many files with this name in Downloads.', 'name_taken')
 }
 
 export const registerScanPackIpc = (): void => {
@@ -104,6 +125,13 @@ export const registerScanPackIpc = (): void => {
     if (!isPart(part)) throw new ScanPackError('part must be label or invoice.', 'bad_request')
     // Sent as a Uint8Array: structured clone keeps it binary, no base64 round trip.
     return new Uint8Array(await downloadPart(String(id), String(orderId), part))
+  })
+
+  handle(SCANPACK_IPC.buildPdf, async (id: string, orderIds: unknown, parts: unknown) => {
+    if (!Array.isArray(orderIds) || !Array.isArray(parts) || !parts.length || !parts.every(isPart)) {
+      throw new ScanPackError('Expected order ids and label/invoice parts.', 'bad_request')
+    }
+    return new Uint8Array(await buildPartsPdf(String(id), orderIds.map(String), parts))
   })
 
   handle(SCANPACK_IPC.saveSource, (id: string, docId: unknown, name: unknown, bytes: unknown, pageCount: unknown) => {
@@ -174,22 +202,18 @@ export const registerScanPackIpc = (): void => {
   handle(SCANPACK_IPC.saveDownload, async (bytes: unknown, fileName: unknown) => {
     const data = toBuffer(bytes)
     if (data.subarray(0, 5).toString('latin1') !== '%PDF-') throw new ScanPackError('The file is not a PDF.', 'not_pdf')
-    const safe = safeFileName(isText(fileName) ? fileName : 'order.pdf').slice(0, 150)
-    const base = safe.toLowerCase().endsWith('.pdf') ? safe.slice(0, -4) : safe
-    const dir = app.getPath('downloads')
-    await mkdir(dir, { recursive: true })
-    for (let n = 0; n < 1000; n++) {
-      const file = join(dir, n ? `${base} (${n}).pdf` : `${base}.pdf`)
-      try {
-        // 'wx': fail if it exists, so two quick scans never overwrite each other.
-        await writeFile(file, data, { flag: 'wx' })
-        printPerf([`Auto Download saved ${Math.round(data.length / 1024)} KB → ${file}`])
-        return file
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-      }
+    return saveToDownloads(data, isText(fileName) ? fileName : 'order.pdf', 'Auto Download')
+  })
+
+  // The sorted download: built and saved here, so a PDF of thousands of labels
+  // never has to be copied into the window (which ran it out of memory).
+  handle(SCANPACK_IPC.savePartsPdf, async (id: string, orderIds: unknown, parts: unknown, fileName: unknown) => {
+    if (!Array.isArray(orderIds) || !Array.isArray(parts) || !parts.length || !parts.every(isPart)) {
+      throw new ScanPackError('Expected order ids and label/invoice parts.', 'bad_request')
     }
-    throw new ScanPackError('Too many files with this name in Downloads.', 'name_taken')
+    const data = await buildPartsPdf(String(id), orderIds.map(String), parts)
+    const file = await saveToDownloads(data, isText(fileName) ? fileName : 'labels.pdf', 'Sorted download')
+    return { file, bytes: data.length }
   })
 
   // SKU Mapping: the master-sku table, merged from each sheet without duplicates.

@@ -16,8 +16,6 @@ import {
   type CreatePacklogInput,
   type CreateProgress,
 } from "../utils/scan-and-pack/create-packlog";
-import { downloadPdf } from "../utils/scan-and-pack/pdf-output";
-import { fetchOrderBytes } from "../utils/scan-and-pack/print-dispatch";
 import { orderComparator, readSort, sortLabel } from "../utils/scan-and-pack/sort";
 
 export type PacklogJobStatus = "running" | "done" | "error";
@@ -140,23 +138,20 @@ export const startSortedLabelsDownload = (packlogObjectId: string, packlogId: st
       if (!queue.length) throw new Error(`No order of ${packlogId} has a ${part} mapped.`);
       update(id, { subtitle: `${queue.length} ${part}(s) · sorted by ${sortLabel(sortKey)}` });
 
-      const { PDFDocument } = await import("pdf-lib");
-      const out = await PDFDocument.create();
-      for (const [index, order] of queue.entries()) {
-        const source = await PDFDocument.load(await fetchOrderBytes(batch.id, order, part));
-        const pages = await out.copyPages(source, source.getPageIndices());
-        pages.forEach((page) => out.addPage(page));
-        update(id, {
-          progress: { text: "Adding labels…", done: index + 1, total: queue.length, unit: part === "label" ? "labels" : "invoices" },
-        });
-      }
-      update(id, { progress: { text: "Saving the PDF…" } });
+      // One pass in the agent: each source PDF is parsed once, not once per label.
+      update(id, { progress: { text: `Building the PDF of ${queue.length} ${part}(s)…` } });
+      // Saved to Downloads by the agent: the PDF never comes into this window.
       const suffix = sortKey === "sheet" ? "" : `-by-${sortKey}`;
-      downloadPdf(await out.save(), `${packlogId}-${part}s${suffix}.pdf`);
-      toast.success(`Downloaded ${queue.length} sorted ${part}(s) of ${packlogId}.`);
+      const saved = await PacklogService.savePartsPdf(
+        batch.id,
+        queue.map((order) => order.id),
+        [part],
+        `${packlogId}-${part}s${suffix}.pdf`
+      );
+      toast.success(`Saved ${queue.length} sorted ${part}(s) to ${saved.file}`, { duration: 6000 });
       finish(id, {
         status: "done",
-        message: `${queue.length} ${part}(s) downloaded`,
+        message: `${queue.length} ${part}(s) saved to ${saved.file}`,
         progress: { text: "", done: queue.length, total: queue.length },
       });
     } catch (error) {
