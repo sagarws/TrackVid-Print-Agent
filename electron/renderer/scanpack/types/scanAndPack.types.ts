@@ -48,6 +48,8 @@ export interface ScanPackOrder {
   packedAt: string | null;
   /** Master SKU its SKU maps to in the SKU Mapping table; null when none matched. */
   masterSku: string | null;
+  /** Flipkart's distribution code (`B1`, `C1` …) read off the label; null when none. */
+  distributionCode: string | null;
 }
 
 export interface ScanPackDocument {
@@ -95,6 +97,8 @@ export interface ScannedLabel {
   awb: string;
   labelPages: number[];
   invoicePages: number[];
+  /** Distribution code printed on the label (Flipkart), when one was read. */
+  distributionCode?: string | null;
 }
 
 export interface ScanReport {

@@ -27,6 +27,7 @@ import {
   printable,
   saveSource,
   ScanPackError,
+  setDistributionCodes,
   storageRoot,
   uploadPart
 } from './store'
@@ -118,6 +119,17 @@ export const registerScanPackIpc = (): void => {
     // Cut the per-order PDFs in the background, on the workers from Settings.
     const jobId = enqueueExtraction(String(id))
     return { ...result, jobId, workers: getSettings().scanPackWorkers }
+  })
+
+  handle(SCANPACK_IPC.setDistributionCodes, (id: string, codes: unknown) => {
+    if (!Array.isArray(codes)) throw new ScanPackError('Expected a list of distribution codes.', 'bad_request')
+    const clean = codes
+      .filter((c): c is Record<string, unknown> => Boolean(c) && typeof c === 'object')
+      .map(c => ({
+        orderId: typeof c['orderId'] === 'string' ? c['orderId'] : '',
+        code: typeof c['code'] === 'string' ? c['code'].trim().slice(0, 16) : ''
+      }))
+    return setDistributionCodes(String(id), clean)
   })
 
   handle(SCANPACK_IPC.waitForFirst, async (jobId: unknown, count: unknown) => {

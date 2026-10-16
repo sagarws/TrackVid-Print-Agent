@@ -42,6 +42,8 @@ export const buildOrders = (sheet: ParsedSheet, batchId: string): ScanPackOrder[
     packedAt: null,
     // Filled in by the agent from the SKU Mapping table when the packlog is saved.
     masterSku: null,
+    // Read off the label when the PDFs are matched (Flipkart only).
+    distributionCode: null,
   }));
 
 export interface MatchResult {
@@ -59,7 +61,7 @@ export const applyScanReports = (
   orders: ScanPackOrder[],
   reports: ScanReport[]
 ): MatchResult => {
-  type Hit = { docId: string; labelPages: number[]; invoicePages: number[] };
+  type Hit = { docId: string; labelPages: number[]; invoicePages: number[]; distributionCode: string | null };
 
   const exact = new Map<string, Hit>();
   const alias = new Map<string, Hit>();
@@ -73,6 +75,7 @@ export const applyScanReports = (
           docId: report.docId,
           labelPages: label.labelPages,
           invoicePages: label.invoicePages,
+          distributionCode: label.distributionCode ?? null,
         });
       }
     });
@@ -84,6 +87,12 @@ export const applyScanReports = (
     awbAliases(awb).forEach((key) => {
       if (!exact.has(key) && !alias.has(key)) alias.set(key, hit);
     });
+  });
+
+  const withHit = (order: ScanPackOrder, { distributionCode, ...mapping }: Hit): ScanPackOrder => ({
+    ...order,
+    mapping,
+    distributionCode: distributionCode ?? order.distributionCode,
   });
 
   const claimed = new Set<string>();
@@ -104,7 +113,7 @@ export const applyScanReports = (
 
     claimed.add(order.awb);
     newlyMapped += 1;
-    return { ...order, mapping: { ...hit } };
+    return withHit(order, hit);
   });
 
   // Second pass: only the rows the exact pass could not place.
@@ -116,7 +125,7 @@ export const applyScanReports = (
       if (hit) {
         claimed.add(key);
         newlyMapped += 1;
-        return { ...order, mapping: { ...hit } };
+        return withHit(order, hit);
       }
     }
     return order;

@@ -241,6 +241,12 @@ const UploadSessionModal = ({ open, onClose, onCreated }: Props) => {
       );
     });
     perfLog(`${mapMs} ms taken in save page map (${maps.length} orders, one call)`);
+
+    // Flipkart: the distribution code read off each label (B1, C1 …).
+    const codes = orders
+      .filter((o) => o.distributionCode && backendIdByAwb.has(o.awb))
+      .map((o) => ({ orderId: backendIdByAwb.get(o.awb)!, code: o.distributionCode! }));
+    if (codes.length) await PacklogService.setDistributionCodes(packlogBackendId, codes);
     totals.add("save: page map (all orders)", mapMs);
 
     // AGENT: per-order PDFs are cut in the background on N workers (Settings),

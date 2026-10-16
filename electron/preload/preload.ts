@@ -63,6 +63,8 @@ const api = {
       maps: { orderId: string; docId: string; labelPages: number[]; invoicePages: number[] }[]
     ): Promise<Result<{ mapped: number; mappedCount: number; jobId: string | null; workers: number }>> =>
       ipcRenderer.invoke(SCANPACK_IPC.mapOrders, id, maps),
+    setDistributionCodes: (id: string, codes: { orderId: string; code: string }[]): Promise<Result<{ updated: number }>> =>
+      ipcRenderer.invoke(SCANPACK_IPC.setDistributionCodes, id, codes),
     waitForFirst: (jobId: string, count: number): Promise<Result<ExtractionJob | null>> =>
       ipcRenderer.invoke(SCANPACK_IPC.waitForFirst, jobId, count),
     listJobs: (): Promise<Result<ExtractionJobSummary[]>> => ipcRenderer.invoke(SCANPACK_IPC.listJobs),

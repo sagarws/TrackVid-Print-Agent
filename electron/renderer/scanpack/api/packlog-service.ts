@@ -62,6 +62,7 @@ interface ServerPacklogOrder {
   packStatus?: PackStatus;
   packedAt?: string | null;
   masterSku?: string | null;
+  distributionCode?: string | null;
 }
 
 interface ServerPacklogDetail {
@@ -117,6 +118,7 @@ export const adaptPacklogDetail = (d: ServerPacklogDetail): ScanPackBatch => {
     packStatus: o.packStatus === "packed" ? "packed" : "ready",
     packedAt: o.packedAt ?? null,
     masterSku: o.masterSku ?? null,
+    distributionCode: o.distributionCode ?? null,
     };
   });
   return {
@@ -208,6 +210,10 @@ const mapOrders = (
   maps: { orderId: string; docId: string; labelPages: number[]; invoicePages: number[] }[]
 ) => envelope(api().mapOrders(packlogObjectId, maps));
 
+/** Store the distribution code read off each order's label (Flipkart). */
+const setDistributionCodes = (packlogObjectId: string, codes: { orderId: string; code: string }[]) =>
+  envelope(api().setDistributionCodes(packlogObjectId, codes));
+
 /** Mark one order packed. Idempotent: a second call keeps the first `packedAt`. */
 const markPacked = (packlogObjectId: string, orderObjectId: string) =>
   envelope(api().markPacked(packlogObjectId, orderObjectId));
@@ -238,4 +244,5 @@ export const PacklogService = {
   markPacked,
   saveSource,
   mapOrders,
+  setDistributionCodes,
 };

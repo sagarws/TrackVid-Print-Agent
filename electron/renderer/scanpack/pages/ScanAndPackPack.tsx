@@ -54,6 +54,7 @@ import PrintTargetMismatchDialog from "../components/ScanAndPack/PrintTargetMism
 import useBarcodeScanner from "../components/hooks/useBarcodeScanner";
 import { normaliseAwb } from "../utils/scan-and-pack/platforms";
 import { findHeader } from "../utils/scan-and-pack/sheet";
+import { orderComparator, readSort } from "../utils/scan-and-pack/sort";
 import ROUTE_URLS from "../config/route";
 import type { PackStatus, ScanPackBatch, ScanPackOrder } from "../types/scanAndPack.types";
 import { LOCALSTORAGE_SCANPACK_COPY_AWB_ON_PRINT, SCANPACK_PART_LABELS } from "../config/constant";
@@ -160,6 +161,16 @@ const ScanAndPackPack = () => {
     [batch]
   );
 
+  // The sort chosen on the packlog page (SKU / Carrier Name / Distribution
+  // Code): scans, the table and Print by Master SKU all work in that order.
+  const byChosen = useMemo(
+    () =>
+      batch
+        ? orderComparator(batch, readSort(batch))
+        : (a: ScanPackOrder, b: ScanPackOrder) => a.rowIndex - b.rowIndex,
+    [batch]
+  );
+
   const listingSkuHeader = useMemo(
     // AGENT CHANGE: the template's "SKU" column first, "Listing SKU" for older sheets.
     () => (batch ? findHeader(batch.headers, ["sku", "skus", "listing sku", "listing skus"]) : null),
@@ -217,7 +228,7 @@ const ScanAndPackPack = () => {
       Boolean(listingSkuHeader && matchesColumn(order, listingSkuHeader, needle)) ||
       Boolean(listingIdHeader && matchesColumn(order, listingIdHeader, needle)) ||
       Boolean(order.masterSku && normaliseAwb(order.masterSku) === needle);
-    const inSheetOrder = options.slice().sort((a, b) => a.rowIndex - b.rowIndex);
+    const inSheetOrder = options.slice().sort(byChosen);
 
     const hit = inSheetOrder.find((order) => order.packStatus !== "packed" && matches(order));
     if (hit) {
@@ -520,7 +531,7 @@ const ScanAndPackPack = () => {
           const bt = b.packedAt ? Date.parse(b.packedAt) : 0;
           if (at !== bt) return bt - at;
         }
-        return a.rowIndex - b.rowIndex;
+        return byChosen(a, b);
       })
       .map((order) => ({
         id: order.id,
@@ -532,7 +543,7 @@ const ScanAndPackPack = () => {
         packStatus: order.packStatus,
         packedAt: order.packedAt,
       }));
-  }, [batch, listingSkuHeader, listingIdHeader]);
+  }, [batch, listingSkuHeader, listingIdHeader, byChosen]);
 
   const pagedPackRows = useMemo(
     () => packRows.slice((packPage - 1) * packLimit, packPage * packLimit),
@@ -621,7 +632,7 @@ const ScanAndPackPack = () => {
   const ordersOfMaster = (master: string, readyOnly: boolean) =>
     options
       .filter((o) => o.masterSku === master && (!readyOnly || o.packStatus !== "packed"))
-      .sort((a, b) => a.rowIndex - b.rowIndex);
+      .sort(byChosen);
 
   const printByMaster = async () => {
     if (!batch || !pickedMaster || bulkRun || runningAction) return;

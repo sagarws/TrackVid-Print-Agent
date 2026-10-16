@@ -4,7 +4,7 @@
  * exactly the rows its tab shows.
  */
 import * as XLSX from "xlsx";
-import type { ScanPackBatch } from "../../types/scanAndPack.types";
+import type { ScanPackBatch, ScanPackOrder } from "../../types/scanAndPack.types";
 
 export type StatusFilter = "all" | "mapped" | "unmapped" | "ready" | "packed";
 
@@ -39,8 +39,14 @@ const EXPORT_SHEET_COLUMNS = [
 
 const normalizeHeader = (header: string) => header.replace(/[\s_]+/g, "").toLowerCase();
 
-/** One sheet per status tab, each holding exactly the rows that tab shows. */
-export const exportBatchXlsx = (batch: ScanPackBatch) => {
+/**
+ * One sheet per status tab, each holding exactly the rows that tab shows, in
+ * the packlog's chosen sort (sheet order by default).
+ */
+export const exportBatchXlsx = (
+  batch: ScanPackBatch,
+  compare: (a: ScanPackOrder, b: ScanPackOrder) => number = (a, b) => a.rowIndex - b.rowIndex
+) => {
   // Uploaded sheets vary in casing and spacing ("AWB number", "Listing_ID"), so
   // each export column is resolved to whatever the sheet actually called it.
   const sourceHeaders = EXPORT_SHEET_COLUMNS.map((column) =>
@@ -48,8 +54,16 @@ export const exportBatchXlsx = (batch: ScanPackBatch) => {
   );
   // The sheet's own Shipping Label / Invoice columns are placeholders; the
   // export reports whether that part is actually mapped.
-  const columns = [...EXPORT_SHEET_COLUMNS, "Master SKU", "Shipping Label", "Invoice"];
-  const ordered = batch.orders.slice().sort((a, b) => a.rowIndex - b.rowIndex);
+  // Distribution Code is Flipkart's B1 / C1 box, so only packlogs that have one get the column.
+  const hasCodes = batch.orders.some((order) => order.distributionCode);
+  const columns = [
+    ...EXPORT_SHEET_COLUMNS,
+    "Master SKU",
+    ...(hasCodes ? ["Distribution Code"] : []),
+    "Shipping Label",
+    "Invoice",
+  ];
+  const ordered = batch.orders.slice().sort(compare);
 
   const workbook = XLSX.utils.book_new();
   for (const tab of STATUS_TABS) {
@@ -58,6 +72,7 @@ export const exportBatchXlsx = (batch: ScanPackBatch) => {
       .map((order) => [
         ...sourceHeaders.map((header) => (header ? order.raw[header] ?? "" : "")),
         order.masterSku ?? "",
+        ...(hasCodes ? [order.distributionCode ?? ""] : []),
         order.mapping?.labelPages.length ? "Yes" : "No",
         order.mapping?.invoicePages.length ? "Yes" : "No",
       ]);

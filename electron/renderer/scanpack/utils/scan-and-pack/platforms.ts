@@ -8,6 +8,8 @@
  * text layer as well as in the barcode.
  */
 
+import { flipkartDistributionCode, type PageTextItem } from "@shared/utils/distributionCode";
+
 export interface PlatformConfig {
   key: string;
   label: string;
@@ -55,6 +57,12 @@ export interface PlatformConfig {
   useInvoiceAsAnchor?: boolean;
   /** Companion to `useInvoiceAsAnchor` — decides which pages are invoices. */
   isInvoicePage?: (text: string) => boolean;
+  /**
+   * A label's distribution (sort) code, when the platform prints one —
+   * Flipkart's `B1` / `C1` box beside the bottom barcode. Gets the page's text
+   * items with their font heights, and the joined text.
+   */
+  distributionCodeFromPage?: (items: PageTextItem[], text: string) => string | null;
 }
 
 /** Text markers that identify a tax-invoice page — never treated as a label. */
@@ -208,6 +216,8 @@ const FLIPKART: PlatformConfig = {
     return null;
   },
   barcodeFormats: ["Code128"],
+  // The `B1` / `C1` box beside the bottom barcode.
+  distributionCodeFromPage: flipkartDistributionCode,
 };
 
 export const PLATFORMS: PlatformConfig[] = [AMAZON, FLIPKART, MYNTRA, AJIO];

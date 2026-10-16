@@ -4,7 +4,9 @@ import {
   CircularProgress,
   IconButton,
   InputAdornment,
+  MenuItem,
   Stack,
+  TextField,
   Typography,
 } from "@mui/material";
 import type { GridColDef } from "@mui/x-data-grid";
@@ -14,6 +16,7 @@ import {
   PublishedWithChangesOutlined,
   QrCodeScannerOutlined,
   Search,
+  SortOutlined,
   VisibilityOutlined,
 } from "@mui/icons-material";
 import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -45,8 +48,16 @@ import {
 import PrintTargetMismatchDialog from "../components/ScanAndPack/PrintTargetMismatchDialog";
 import PrinterSetupModal from "../components/ScanAndPack/PrinterSetupModal";
 import { getPlatform } from "../utils/scan-and-pack/platforms";
+import {
+  orderComparator,
+  readSort,
+  sortHeaderMissing,
+  sortOptions,
+  writeSort,
+  type SortKey,
+} from "../utils/scan-and-pack/sort";
 import ROUTE_URLS from "../config/route";
-import type { PackStatus, ScanPackBatch } from "../types/scanAndPack.types";
+import type { PackStatus, ScanPackBatch, ScanPackOrder } from "../types/scanAndPack.types";
 
 const MAPPED_FIELD = "__mapped__";
 const LABEL_COUNT_FIELD = "__labelCount__";
@@ -54,6 +65,7 @@ const INVOICE_COUNT_FIELD = "__invoiceCount__";
 const PACK_STATUS_FIELD = "__packStatus__";
 const PACKED_AT_FIELD = "__packedAt__";
 const MASTER_SKU_FIELD = "__masterSku__";
+const DISTRIBUTION_CODE_FIELD = "__distributionCode__";
 const ACTIONS_FIELD = "__actions__";
 // The uploaded sheet almost always carries "Shipping Label", "Invoice" and
 // "Platform" columns that either duplicate our own status (Label/Invoice) or are
@@ -74,6 +86,7 @@ const ScanAndPackBatch = () => {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>("sheet");
   // PDF preview modal state — opened by the inline eye icons on the Label /
   // Invoice cells. `bytes: null` means the pdf-lib pass is still running.
   const [preview, setPreview] = useState<{
@@ -110,7 +123,9 @@ const ScanAndPackBatch = () => {
         return;
       }
        
-      setBatch(adaptPacklogDetail(envelope as any));
+      const next = adaptPacklogDetail(envelope as any);
+      setBatch(next);
+      setSortKey(readSort(next));
     } catch (error) {
       if (aliveRef.current) {
         toast.error(error instanceof Error ? error.message : "Could not load this packlog.");
@@ -124,6 +139,8 @@ const ScanAndPackBatch = () => {
     void load();
   }, [load]);
 
+  const byChosen = useMemo(() => (batch ? orderComparator(batch, sortKey) : (a: ScanPackOrder, b: ScanPackOrder) => a.rowIndex - b.rowIndex), [batch, sortKey]);
+
   const rows = useMemo(() => {
     if (!batch) return [];
     const needle = search.trim().toLowerCase();
@@ -135,7 +152,8 @@ const ScanAndPackBatch = () => {
         // SKU or listing id, not only by AWB.
         return (
           Object.values(order.raw).some((value) => value.toLowerCase().includes(needle)) ||
-          Boolean(order.masterSku?.toLowerCase().includes(needle))
+          Boolean(order.masterSku?.toLowerCase().includes(needle)) ||
+          Boolean(order.distributionCode?.toLowerCase().includes(needle))
         );
       })
       // Packed first, most recently packed at the very top, so a parcel that
@@ -144,6 +162,9 @@ const ScanAndPackBatch = () => {
       // which is the sequence the picker walks the shelves in.
       .slice()
       .sort((a, b) => {
+        // A chosen sort orders every row by that value; the default keeps
+        // packed on top, as below.
+        if (sortKey !== "sheet") return byChosen(a, b);
         const aPacked = a.packStatus === "packed";
         const bPacked = b.packStatus === "packed";
         if (aPacked !== bPacked) return aPacked ? -1 : 1;
@@ -166,14 +187,24 @@ const ScanAndPackBatch = () => {
         [PACK_STATUS_FIELD]: order.packStatus,
         [PACKED_AT_FIELD]: order.packedAt,
         [MASTER_SKU_FIELD]: order.masterSku ?? "",
+        [DISTRIBUTION_CODE_FIELD]: order.distributionCode ?? "",
       }));
-  }, [batch, search, status]);
+  }, [batch, search, status, sortKey, byChosen]);
 
   // Reset to the first page whenever the visible set changes, otherwise a
   // filter that shrinks the result set leaves the grid stranded on an empty page.
   useEffect(() => {
     setPage(1);
-  }, [search, status]);
+  }, [search, status, sortKey]);
+
+  const changeSort = (key: SortKey) => {
+    if (!batch) return;
+    setSortKey(key);
+    writeSort(batch.id, key);
+    if (sortHeaderMissing(batch, key)) {
+      toast(`This order list has no ${key === "sku" ? "SKU" : "Carrier Name"} column, so the sheet order is kept.`);
+    }
+  };
 
   const pagedRows = useMemo(() => rows.slice((page - 1) * limit, page * limit), [rows, page, limit]);
 
@@ -348,9 +379,27 @@ const ScanAndPackBatch = () => {
       ),
     };
 
+    // Flipkart's B1 / C1 box, read off the label — shown only when some order has one.
+    const distributionCodeColumns: GridColDef[] = batch.orders.some((order) => order.distributionCode)
+      ? [
+          {
+            field: DISTRIBUTION_CODE_FIELD,
+            headerName: "Distribution Code",
+            width: 150,
+            resizable: true,
+            renderCell: (params) => (
+              <Typography sx={{ fontSize: 12, fontWeight: params.value ? 700 : 400, color: params.value ? "text.primary" : "text.disabled" }}>
+                {params.value || "—"}
+              </Typography>
+            ),
+          },
+        ]
+      : [];
+
     return [
       ...sheetColumns,
       masterSkuColumn,
+      ...distributionCodeColumns,
       ...partColumns,
       {
         field: MAPPED_FIELD,
@@ -463,13 +512,41 @@ const ScanAndPackBatch = () => {
           </Stack>
 
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+            <TextField
+              select
+              size="small"
+              value={sortKey}
+              onChange={(event) => changeSort(event.target.value as SortKey)}
+              aria-label="Sort orders by"
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SortOutlined sx={{ fontSize: 16, color: "primary.main" }} />
+                  </InputAdornment>
+                ),
+              }}
+              SelectProps={{
+                renderValue: (value) =>
+                  `Sort: ${sortOptions(batch).find((option) => option.key === value)?.label ?? "Sheet order"}`,
+              }}
+              sx={{
+                minWidth: 190,
+                "& .MuiInputBase-root": { height: 32, fontSize: 12.5, fontWeight: 600, color: "primary.main" },
+              }}
+            >
+              {sortOptions(batch).map((option) => (
+                <MenuItem key={option.key} value={option.key} sx={{ fontSize: 13 }}>
+                  {option.label}
+                </MenuItem>
+              ))}
+            </TextField>
             <ButtonElement
               type="button"
               variant="outlined"
               size="small"
               onClick={() => {
                 try {
-                  exportBatchXlsx(batch);
+                  exportBatchXlsx(batch, byChosen);
                 } catch (err) {
                   toast.error(err instanceof Error ? err.message : "Could not export this packlog.");
                 }

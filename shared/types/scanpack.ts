@@ -71,6 +71,11 @@ export interface StoredPacklogOrder {
    * Absent / null: no mapping matched (or the packlog predates the feature).
    */
   masterSku?: string | null
+  /**
+   * Flipkart's distribution code (`B1`, `C1` …), read off the shipping label
+   * when the PDFs are matched. Absent / null: none printed or none read.
+   */
+  distributionCode?: string | null
 }
 
 export interface CreatePacklogInput {

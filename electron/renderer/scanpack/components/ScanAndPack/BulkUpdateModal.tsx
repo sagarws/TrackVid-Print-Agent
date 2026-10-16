@@ -202,6 +202,11 @@ const BulkUpdateModal = ({ open, batch, onClose, onUpdated }: Props) => {
       await saveBatch(next);
 
       const uploaded = await uploadNewMappings(newlyMappedOrders);
+      // Flipkart: the distribution code read off each newly mapped label.
+      const codes = newlyMappedOrders
+        .filter((order) => order.distributionCode)
+        .map((order) => ({ orderId: order.id, code: order.distributionCode! }));
+      if (codes.length) await PacklogService.setDistributionCodes(batch.id, codes);
       if (!aliveRef.current) return;
 
       if (match.newlyMapped > 0) {

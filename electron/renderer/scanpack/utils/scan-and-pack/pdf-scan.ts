@@ -15,6 +15,7 @@ import PdfJsWorker from "pdfjs-dist/build/pdf.worker.min.mjs?worker";
 import { prepareZXingModule, readBarcodes } from "zxing-wasm/reader";
 import zxingWasmUrl from "zxing-wasm/reader/zxing_reader.wasm?url";
 import type { ScanMode, ScanReport, ScannedLabel } from "../../types/scanAndPack.types";
+import type { PageTextItem } from "@shared/utils/distributionCode";
 import { getPlatform, normaliseAwb, type PlatformConfig } from "./platforms";
 import { elapsed, now, perfLog, recordLabel, type StageTotals } from "./perf";
 
@@ -63,12 +64,18 @@ const ensureZXing = () => {
   return zxingReady;
 };
 
-const getPageText = async (page: PDFPageProxy) => {
+const getPageText = async (page: PDFPageProxy): Promise<{ text: string; items: PageTextItem[] }> => {
   const content = await page.getTextContent();
-  return content.items
-    .map((item) => ("str" in item ? item.str : ""))
+  const items: PageTextItem[] = content.items.map((item) =>
+    "str" in item
+      ? { str: item.str, height: item.height || Math.hypot(item.transform[2] ?? 0, item.transform[3] ?? 0) }
+      : { str: "", height: 0 }
+  );
+  const text = items
+    .map((item) => item.str)
     .join(" ")
     .replace(/\s+/g, " ");
+  return { text, items };
 };
 
 /**
@@ -222,6 +229,7 @@ export const scanLabelPdf = async (
     isInvoice: boolean;
     awb: string | null;         // decoded label AWB (label-anchored path)
     invoiceAwb: string | null;  // extracted invoice AWB (invoice-anchored path)
+    distributionCode: string | null;
   }[] = [];
 
   try {
@@ -233,7 +241,7 @@ export const scanLabelPdf = async (
       const getPageMs = elapsed(start);
       try {
         start = now();
-        const text = await getPageText(page);
+        const { text, items } = await getPageText(page);
         const textMs = elapsed(start);
         const pageLabel = recordLabel("page", pageNo);
         options.totals?.add("scan: open page", getPageMs);
@@ -242,6 +250,7 @@ export const scanLabelPdf = async (
         let isInvoice = false;
         let awb: string | null = null;
         let invoiceAwb: string | null = null;
+        let distributionCode: string | null = null;
         if (useInvoiceAnchor) {
           isInvoice = platform.isInvoicePage!(text);
           if (isInvoice) invoiceAwb = platform.awbFromInvoiceText!(text);
@@ -252,9 +261,10 @@ export const scanLabelPdf = async (
             awb = fromText
               ? normaliseAwb(fromText)
               : await decodeAwbFromPage(page, platform, canvas, { label: pageLabel, totals: options.totals });
+            distributionCode = platform.distributionCodeFromPage?.(items, text) ?? null;
           }
         }
-        pageInfos.push({ pageIndex: pageNo - 1, text, isLabel, isInvoice, awb, invoiceAwb });
+        pageInfos.push({ pageIndex: pageNo - 1, text, isLabel, isInvoice, awb, invoiceAwb, distributionCode });
         const kind = isLabel ? "label page" : isInvoice ? "invoice page" : "other page";
         const found = awb ?? invoiceAwb;
         const how = found ? "AWB found" : isLabel ? "no AWB found" : "no AWB needed";
@@ -353,10 +363,10 @@ export const scanLabelPdf = async (
       }
     }
 
-    const labelPageHits: { pageIndex: number; awb: string }[] = [];
+    const labelPageHits: { pageIndex: number; awb: string; distributionCode: string | null }[] = [];
     for (const info of pageInfos) {
       if (!info.isLabel) continue;
-      if (info.awb) labelPageHits.push({ pageIndex: info.pageIndex, awb: info.awb });
+      if (info.awb) labelPageHits.push({ pageIndex: info.pageIndex, awb: info.awb, distributionCode: info.distributionCode });
       else unreadablePages.push(info.pageIndex + 1);
     }
 
@@ -368,7 +378,7 @@ export const scanLabelPdf = async (
       if (seen.has(hit.awb)) duplicateAwbs.push(hit.awb);
       seen.add(hit.awb);
 
-      return { awb: hit.awb, labelPages: [hit.pageIndex], invoicePages };
+      return { awb: hit.awb, labelPages: [hit.pageIndex], invoicePages, distributionCode: hit.distributionCode };
     });
   }
 

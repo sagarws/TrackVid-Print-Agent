@@ -381,6 +381,25 @@ export const mapOrders = (
   return { mapped, mappedCount: entry.packlog.mappedCount }
 }
 
+/** Store the distribution code read off each order's label (Flipkart). */
+export const setDistributionCodes = (id: string, codes: { orderId: string; code: string }[]) => {
+  const entry = get(id)
+  const byId = new Map(entry.orders.map(o => [o._id, o]))
+  let updated = 0
+  for (const { orderId, code } of codes) {
+    const order = byId.get(orderId)
+    if (!order || !code || order.distributionCode === code) continue
+    order.distributionCode = code
+    updated++
+  }
+  if (updated) {
+    entry.packlog.updatedAt = new Date().toISOString()
+    writeEntry(entry)
+    dirty.delete(id)
+  }
+  return { updated }
+}
+
 type Located = { kind: 'file'; file: string } | { kind: 'ref'; file: string; pages: number[] }
 
 const locate = (entry: Entry, order: StoredPacklogOrder, part: PartName): Located | null => {
