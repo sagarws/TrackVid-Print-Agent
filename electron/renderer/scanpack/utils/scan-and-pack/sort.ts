@@ -2,13 +2,15 @@
  * Packlog sort: the order the packlog table shows its rows in, the Export
  * writes them in, and the Scan & Pack page works through them in.
  *
- * Chosen per packlog on the packlog page and remembered in this browser, so
- * the pack page picks it up without being told.
+ * Saved with the packlog (Label Sorting, the packlog list or the packlog
+ * page), so every screen and the download pick it up.
  */
 import type { ScanPackBatch, ScanPackOrder } from "../../types/scanAndPack.types";
+import type { PacklogSortKey } from "@shared/types/scanpack";
+import { PacklogService } from "../../api/packlog-service";
 import { findHeader } from "./sheet";
 
-export type SortKey = "sheet" | "sku" | "carrier" | "distributionCode";
+export type SortKey = "sheet" | PacklogSortKey;
 
 export interface SortOption {
   key: SortKey;
@@ -29,10 +31,18 @@ const CARRIER_HEADERS = [
 /** Sheet order always; Distribution Code only on Flipkart packlogs. */
 export const sortOptions = (batch: Pick<ScanPackBatch, "platform">): SortOption[] => [
   { key: "sheet", label: "Sheet order" },
+  ...labelSortOptions(batch.platform),
+];
+
+/** The sorts Label Sorting offers: Distribution Code only on Flipkart. */
+export const labelSortOptions = (platform: string): (SortOption & { key: PacklogSortKey })[] => [
   { key: "sku", label: "SKU" },
   { key: "carrier", label: "Carrier Name" },
-  ...(batch.platform === "flipkart" ? [{ key: "distributionCode" as const, label: "Distribution Code" }] : []),
+  ...(platform === "flipkart" ? [{ key: "distributionCode" as const, label: "Distribution Code" }] : []),
 ];
+
+export const sortLabel = (key: SortKey | null | undefined): string =>
+  key === "sku" ? "SKU" : key === "carrier" ? "Carrier Name" : key === "distributionCode" ? "Distribution Code" : "Sheet order";
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
@@ -70,23 +80,28 @@ export const sortHeaderMissing = (batch: Pick<ScanPackBatch, "headers">, key: So
   (key === "sku" && !findHeader(batch.headers, SKU_HEADERS)) ||
   (key === "carrier" && !findHeader(batch.headers, CARRIER_HEADERS));
 
-const storageKey = (batchId: string) => `scanpack:sort:${batchId}`;
+// Before the sort was saved with the packlog, the packlog page kept it in this browser.
+const legacyKey = (batchId: string) => `scanpack:sort:${batchId}`;
 
-export const readSort = (batch: Pick<ScanPackBatch, "id" | "platform">): SortKey => {
+/** The sort a packlog is shown in: its saved one, else sheet order. */
+export const readSort = (batch: Pick<ScanPackBatch, "id" | "platform" | "sortKey">): SortKey => {
+  const valid = (key: unknown): key is SortKey => sortOptions(batch).some((o) => o.key === key);
+  if (batch.sortKey && valid(batch.sortKey)) return batch.sortKey;
   try {
-    const stored = localStorage.getItem(storageKey(batch.id));
-    const option = sortOptions(batch).find((o) => o.key === stored);
-    return option ? option.key : "sheet";
+    const legacy = localStorage.getItem(legacyKey(batch.id));
+    if (!batch.sortKey && valid(legacy)) return legacy;
   } catch {
-    return "sheet";
+    // No browser storage; the saved sort is all there is.
   }
+  return "sheet";
 };
 
-export const writeSort = (batchId: string, key: SortKey) => {
+/** Save a packlog's sort with it. */
+export const saveSort = async (batchId: string, key: SortKey) => {
+  await PacklogService.setSortKey(batchId, key === "sheet" ? null : key);
   try {
-    if (key === "sheet") localStorage.removeItem(storageKey(batchId));
-    else localStorage.setItem(storageKey(batchId), key);
+    localStorage.removeItem(legacyKey(batchId));
   } catch {
-    // Not remembered; the sort still applies on this page.
+    // Nothing to clear.
   }
 };

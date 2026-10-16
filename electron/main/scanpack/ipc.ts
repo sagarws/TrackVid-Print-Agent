@@ -3,7 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { SCANPACK_IPC } from '@shared/constants/channels'
 import type { Result } from '@shared/types/agent'
-import type { CreatePacklogInput, PartName } from '@shared/types/scanpack'
+import { PACKLOG_SORT_KEYS, type CreatePacklogInput, type PacklogSortKey, type PartName } from '@shared/types/scanpack'
 import { clampWeeks, clampWorkers, ROOT_FOLDER_NAME, safeFileName } from '@shared/utils/weekFolder'
 import { cancelForPacklog, deleteJob, enqueueExtraction, getJob, listJobs, rerunJob, waitForFirst } from './extractor'
 import { submitJob } from '../jobs'
@@ -28,6 +28,7 @@ import {
   saveSource,
   ScanPackError,
   setDistributionCodes,
+  setSortKey,
   storageRoot,
   uploadPart
 } from './store'
@@ -76,10 +77,15 @@ export const registerScanPackIpc = (): void => {
     if (!['label', 'invoice', 'both'].includes(input.scanMode)) {
       throw new ScanPackError('scanMode must be label, invoice or both.', 'bad_request')
     }
+    if (input.sortKey && !PACKLOG_SORT_KEYS.includes(input.sortKey)) {
+      throw new ScanPackError('Unknown label sort.', 'bad_request')
+    }
     return createPacklog(input)
   })
 
-  handle(SCANPACK_IPC.list, (opts: { page?: number; limit?: number; platform?: string } = {}) => listPacklogs(opts ?? {}))
+  handle(SCANPACK_IPC.list, (opts: { page?: number; limit?: number; platform?: string; sorted?: boolean } = {}) =>
+    listPacklogs(opts ?? {})
+  )
 
   handle(SCANPACK_IPC.get, (id: string) => getPacklog(String(id)))
 
@@ -119,6 +125,13 @@ export const registerScanPackIpc = (): void => {
     // Cut the per-order PDFs in the background, on the workers from Settings.
     const jobId = enqueueExtraction(String(id))
     return { ...result, jobId, workers: getSettings().scanPackWorkers }
+  })
+
+  handle(SCANPACK_IPC.setSortKey, (id: string, sortKey: unknown) => {
+    if (sortKey !== null && !PACKLOG_SORT_KEYS.includes(sortKey as PacklogSortKey)) {
+      throw new ScanPackError('Unknown label sort.', 'bad_request')
+    }
+    return setSortKey(String(id), sortKey as PacklogSortKey | null)
   })
 
   handle(SCANPACK_IPC.setDistributionCodes, (id: string, codes: unknown) => {

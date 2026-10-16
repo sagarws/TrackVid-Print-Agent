@@ -14,6 +14,9 @@
 export type ScanMode = 'label' | 'invoice' | 'both'
 export type PackStatus = 'ready' | 'packed'
 export type PartName = 'label' | 'invoice'
+/** Label Sorting: the order a packlog's labels are worked through and downloaded in. */
+export type PacklogSortKey = 'sku' | 'carrier' | 'distributionCode'
+export const PACKLOG_SORT_KEYS: PacklogSortKey[] = ['sku', 'carrier', 'distributionCode']
 
 export interface StoredPacklog {
   _id: string
@@ -31,6 +34,10 @@ export interface StoredPacklog {
   weekEnd: string
   /** The uploaded label/invoice PDFs, saved once each in the week folder. */
   sources?: StoredSource[]
+  /** The order its labels are shown, packed and downloaded in; absent / null: sheet order. */
+  sortKey?: PacklogSortKey | null
+  /** Created from Label Sorting — listed there whatever its sort is now. */
+  labelSorting?: boolean
 }
 
 export interface StoredSource {
@@ -84,6 +91,7 @@ export interface CreatePacklogInput {
   scanMode: ScanMode
   orderFileName: string
   headers: string[]
+  sortKey?: PacklogSortKey | null
   orders: { rowIndex: number; awb: string; awbRaw: string; rawRow: Record<string, string> }[]
 }
 

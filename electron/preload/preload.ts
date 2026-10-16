@@ -9,6 +9,7 @@ import type {
   MasterSkuImportResult,
   MasterSkuRecord,
   MasterSkuSummary,
+  PacklogSortKey,
   PartName
 } from '@shared/types/scanpack'
 
@@ -46,7 +47,7 @@ const api = {
   /** Scan & Pack's local backend — see electron/main/scanpack. */
   scanPack: {
     create: (input: CreatePacklogInput): Promise<Result<unknown>> => ipcRenderer.invoke(SCANPACK_IPC.create, input),
-    list: (opts: { page?: number; limit?: number; platform?: string }): Promise<Result<unknown>> =>
+    list: (opts: { page?: number; limit?: number; platform?: string; sorted?: boolean }): Promise<Result<unknown>> =>
       ipcRenderer.invoke(SCANPACK_IPC.list, opts),
     get: (id: string): Promise<Result<unknown>> => ipcRenderer.invoke(SCANPACK_IPC.get, id),
     remove: (id: string): Promise<Result<unknown>> => ipcRenderer.invoke(SCANPACK_IPC.remove, id),
@@ -63,6 +64,8 @@ const api = {
       maps: { orderId: string; docId: string; labelPages: number[]; invoicePages: number[] }[]
     ): Promise<Result<{ mapped: number; mappedCount: number; jobId: string | null; workers: number }>> =>
       ipcRenderer.invoke(SCANPACK_IPC.mapOrders, id, maps),
+    setSortKey: (id: string, sortKey: PacklogSortKey | null): Promise<Result<{ sortKey: PacklogSortKey | null }>> =>
+      ipcRenderer.invoke(SCANPACK_IPC.setSortKey, id, sortKey),
     setDistributionCodes: (id: string, codes: { orderId: string; code: string }[]): Promise<Result<{ updated: number }>> =>
       ipcRenderer.invoke(SCANPACK_IPC.setDistributionCodes, id, codes),
     waitForFirst: (jobId: string, count: number): Promise<Result<ExtractionJob | null>> =>

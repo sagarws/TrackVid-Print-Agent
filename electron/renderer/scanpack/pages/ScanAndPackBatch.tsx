@@ -53,7 +53,7 @@ import {
   readSort,
   sortHeaderMissing,
   sortOptions,
-  writeSort,
+  saveSort,
   type SortKey,
 } from "../utils/scan-and-pack/sort";
 import ROUTE_URLS from "../config/route";
@@ -199,8 +199,13 @@ const ScanAndPackBatch = () => {
 
   const changeSort = (key: SortKey) => {
     if (!batch) return;
+    const previous = sortKey;
     setSortKey(key);
-    writeSort(batch.id, key);
+    setBatch({ ...batch, sortKey: key === "sheet" ? null : key });
+    saveSort(batch.id, key).catch((error: unknown) => {
+      setSortKey(previous);
+      toast.error(error instanceof Error ? error.message : "Could not save the sort.");
+    });
     if (sortHeaderMissing(batch, key)) {
       toast(`This order list has no ${key === "sku" ? "SKU" : "Carrier Name"} column, so the sheet order is kept.`);
     }

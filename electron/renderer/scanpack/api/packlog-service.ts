@@ -4,6 +4,7 @@ import type {
   ScanPackBatch,
   ScanPackOrder,
 } from "../types/scanAndPack.types";
+import type { PacklogSortKey } from "@shared/types/scanpack";
 
 // Packlog client — ported from TrackVid-FE, where it calls TrackVid-BE's
 // /packlog API. Here the same calls go to the agent's main process over IPC
@@ -31,6 +32,7 @@ interface ServerPacklogSummary {
   scanMode?: ScanMode;
   orderFileName: string;
   headers?: string[];
+  sortKey?: PacklogSortKey | null;
   totalOrders: number;
   mappedCount: number;
   createdAt: string;
@@ -86,6 +88,7 @@ export const adaptPacklogSummary = (s: ServerPacklogSummary): ScanPackBatch => (
   orders: [],
   documentNames: [],
   scanMode: s.scanMode,
+  sortKey: s.sortKey ?? null,
 });
 
 /**
@@ -159,12 +162,13 @@ export interface CreatePacklogPayload {
   scanMode: ScanMode;
   orderFileName: string;
   headers: string[];
+  sortKey?: PacklogSortKey | null;
   orders: CreatePacklogOrderPayload[];
 }
 
 const createPacklog = (payload: CreatePacklogPayload) => envelope(api().create(payload));
 
-const listPacklogs = (opts: { page?: number; limit?: number; platform?: string } = {}) =>
+const listPacklogs = (opts: { page?: number; limit?: number; platform?: string; sorted?: boolean } = {}) =>
   envelope(api().list(opts));
 
 const getPacklog = (id: string) => envelope(api().get(id));
@@ -210,6 +214,10 @@ const mapOrders = (
   maps: { orderId: string; docId: string; labelPages: number[]; invoicePages: number[] }[]
 ) => envelope(api().mapOrders(packlogObjectId, maps));
 
+/** Change the packlog's label sort (null: sheet order). Saved with the packlog. */
+const setSortKey = (packlogObjectId: string, sortKey: PacklogSortKey | null) =>
+  unwrap(api().setSortKey(packlogObjectId, sortKey));
+
 /** Store the distribution code read off each order's label (Flipkart). */
 const setDistributionCodes = (packlogObjectId: string, codes: { orderId: string; code: string }[]) =>
   envelope(api().setDistributionCodes(packlogObjectId, codes));
@@ -245,4 +253,5 @@ export const PacklogService = {
   saveSource,
   mapOrders,
   setDistributionCodes,
+  setSortKey,
 };

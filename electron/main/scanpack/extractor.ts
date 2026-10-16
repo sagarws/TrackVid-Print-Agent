@@ -395,6 +395,10 @@ export const deleteJob = (id: string): void => {
   dirty.delete(id)
   pending.delete(id)
   removeDurableJson(jobFile(id))
+  // Told now, not through the coalesced `changed`: the job is gone, and every
+  // window showing its progress (the Scan & Pack dock, the packlog lists)
+  // must drop it, not keep its last "running" snapshot.
+  listener?.(id)
 }
 
 // ---------------------------------------------------------------------------

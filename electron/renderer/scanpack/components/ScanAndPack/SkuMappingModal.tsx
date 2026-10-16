@@ -21,13 +21,10 @@ interface Props {
 const SHEET_ACCEPT = ".xlsx,.xls,.csv";
 
 /**
- * SKU Mapping: upload the master SKU sheet (one column per master SKU, its
- * listing SKUs underneath) into the agent's `master-sku` table. Each sheet is
- * merged in — a pair already stored is never added twice — and every
- * packlog's orders are re-tagged, so the Master SKU column and Print by Master
- * SKU follow the new mapping straight away.
+ * State and actions of the SKU Mapping screen, shared by the modal (Scan and
+ * Pack) and the SKU Mapping page in the sidebar.
  */
-const SkuMappingModal = ({ open, onClose }: Props) => {
+export const useSkuMapping = () => {
   const [summary, setSummary] = useState<MasterSkuSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [files, setFiles] = useState<File[]>([]);
@@ -140,63 +137,25 @@ const SkuMappingModal = ({ open, onClose }: Props) => {
 
   const busy = saving || parsing;
 
+  return {
+    summary, loading, files, parsed, parsing, saving, busy,
+    confirmClear, setConfirmClear, tableOpen, setTableOpen,
+    handleFiles, handleSave, handleClear, downloadTemplate,
+  };
+};
+
+type SkuMapping = ReturnType<typeof useSkuMapping>;
+
+/** Drop zone, preview, current mapping and Clear — everything but the action buttons. */
+export const SkuMappingBody = ({ mapping }: { mapping: SkuMapping }) => {
+  const {
+    summary, loading, files, parsed, parsing, saving, busy,
+    confirmClear, setConfirmClear, tableOpen, setTableOpen,
+    handleFiles, handleClear, downloadTemplate,
+  } = mapping;
+
   return (
-    <DialogShell
-      open={open}
-      onClose={onClose}
-      busy={busy}
-      title="SKU Mapping"
-      subtitle="Master SKU → listing SKUs, used to tag every packlog order"
-      icon={<AccountTreeOutlined />}
-      maxWidth="md"
-      footer={
-        <>
-          <ButtonElement
-            type="button"
-            variant="outlined"
-            size="small"
-            onClick={() => setTableOpen(true)}
-            disabled={busy || !summary?.total}
-            startIcon={<TableRowsOutlined sx={{ fontSize: 14 }} />}
-            sx={{
-              // Pushes itself to the left; Close and Save stay on the right.
-              mr: "auto",
-              color: "primary.main",
-              textTransform: "none",
-              fontSize: 13,
-              fontWeight: 600,
-              px: 2,
-              minHeight: 32,
-              whiteSpace: "nowrap",
-              "& .MuiButton-startIcon": { mr: 0.5 },
-            }}
-          >
-            Show mapping data
-          </ButtonElement>
-          <ButtonElement
-            type="button"
-            variant="outlined"
-            size="small"
-            onClick={onClose}
-            disabled={busy}
-            sx={{ color: "text.primary", textTransform: "none", fontSize: 13, fontWeight: 500, px: 2, minWidth: 100, minHeight: 32 }}
-          >
-            Close
-          </ButtonElement>
-          <ButtonElement
-            type="button"
-            variant="contained"
-            size="small"
-            loading={saving}
-            disabled={busy || !parsed}
-            onClick={handleSave}
-            sx={{ color: "white", textTransform: "none", fontSize: 13, fontWeight: 600, px: 2.5, minHeight: 32, minWidth: 150 }}
-          >
-            Save Mapping
-          </ButtonElement>
-        </>
-      }
-    >
+    <>
       <Stack spacing={1}>
         <FileDropZone
           label="Master SKU file"
@@ -296,6 +255,93 @@ const SkuMappingModal = ({ open, onClose }: Props) => {
           content="Every listing SKU → master SKU pair is removed, and packlog orders lose their master SKU. Upload the file again to restore it."
         />
       )}
+    </>
+  );
+};
+
+export const ShowMappingDataButton = ({ mapping }: { mapping: SkuMapping }) => {
+  const { busy, summary, setTableOpen } = mapping;
+  return (
+    <ButtonElement
+      type="button"
+      variant="outlined"
+      size="small"
+      onClick={() => setTableOpen(true)}
+      disabled={busy || !summary?.total}
+      startIcon={<TableRowsOutlined sx={{ fontSize: 14 }} />}
+      sx={{
+        // Pushes itself to the left; Close and Save stay on the right.
+        mr: "auto",
+        color: "primary.main",
+        textTransform: "none",
+        fontSize: 13,
+        fontWeight: 600,
+        px: 2,
+        minHeight: 32,
+        whiteSpace: "nowrap",
+        "& .MuiButton-startIcon": { mr: 0.5 },
+      }}
+    >
+      Show mapping data
+    </ButtonElement>
+  );
+};
+
+export const SaveMappingButton = ({ mapping }: { mapping: SkuMapping }) => {
+  const { busy, saving, parsed, handleSave } = mapping;
+  return (
+    <ButtonElement
+      type="button"
+      variant="contained"
+      size="small"
+      loading={saving}
+      disabled={busy || !parsed}
+      onClick={handleSave}
+      sx={{ color: "white", textTransform: "none", fontSize: 13, fontWeight: 600, px: 2.5, minHeight: 32, minWidth: 150 }}
+    >
+      Save Mapping
+    </ButtonElement>
+  );
+};
+
+/**
+ * SKU Mapping: upload the master SKU sheet (one column per master SKU, its
+ * listing SKUs underneath) into the agent's `master-sku` table. Each sheet is
+ * merged in — a pair already stored is never added twice — and every
+ * packlog's orders are re-tagged, so the Master SKU column and Print by Master
+ * SKU follow the new mapping straight away.
+ */
+const SkuMappingModal = ({ open, onClose }: Props) => {
+  const mapping = useSkuMapping();
+  const { busy } = mapping;
+
+  return (
+    <DialogShell
+      open={open}
+      onClose={onClose}
+      busy={busy}
+      title="SKU Mapping"
+      subtitle="Master SKU → listing SKUs, used to tag every packlog order"
+      icon={<AccountTreeOutlined />}
+      maxWidth="md"
+      footer={
+        <>
+          <ShowMappingDataButton mapping={mapping} />
+          <ButtonElement
+            type="button"
+            variant="outlined"
+            size="small"
+            onClick={onClose}
+            disabled={busy}
+            sx={{ color: "text.primary", textTransform: "none", fontSize: 13, fontWeight: 500, px: 2, minWidth: 100, minHeight: 32 }}
+          >
+            Close
+          </ButtonElement>
+          <SaveMappingButton mapping={mapping} />
+        </>
+      }
+    >
+      <SkuMappingBody mapping={mapping} />
     </DialogShell>
   );
 };

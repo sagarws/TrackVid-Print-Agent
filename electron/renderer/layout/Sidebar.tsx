@@ -1,13 +1,18 @@
+import type { ReactNode } from 'react'
 import { Box, ButtonBase, Stack, Typography } from '@mui/material'
+import { AccountTreeOutlined, SortOutlined } from '@mui/icons-material'
 import type { AgentState } from '@shared/types/agent'
 import { SIDEBAR } from '../theme/brand'
 import logo from '../assets/logo.svg'
 
-export type Page = 'home' | 'scanpack' | 'background' | 'settings'
+export type Page = 'home' | 'scanpack' | 'skuMapping' | 'labelSorting' | 'background' | 'settings'
 
-const NAV: { id: Page; label: string; icon: string }[] = [
+// A Tabler class from styles/icons.css, or a component for icons not in that set.
+const NAV: { id: Page; label: string; icon: string | ReactNode }[] = [
   { id: 'home', label: 'Home', icon: 'tabler-smart-home' },
   { id: 'scanpack', label: 'Scan and Pack', icon: 'tabler-barcode' },
+  { id: 'skuMapping', label: 'SKU Mapping', icon: <AccountTreeOutlined sx={{ fontSize: 20 }} /> },
+  { id: 'labelSorting', label: 'Label Sorting', icon: <SortOutlined sx={{ fontSize: 20 }} /> },
   { id: 'background', label: 'Background process', icon: 'tabler-stack-2' },
   { id: 'settings', label: 'Settings', icon: 'tabler-settings' }
 ]
@@ -61,7 +66,7 @@ const Sidebar = ({ page, onNavigate, state }: { page: Page; onNavigate: (page: P
                 '&:hover': { bgcolor: active ? 'primary.main' : SIDEBAR.hover }
               }}
             >
-              <i className={item.icon} style={{ fontSize: 20 }} />
+              {typeof item.icon === 'string' ? <i className={item.icon} style={{ fontSize: 20 }} /> : item.icon}
               {item.label}
             </ButtonBase>
           )

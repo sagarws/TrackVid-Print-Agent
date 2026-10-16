@@ -38,6 +38,7 @@ export const SCANPACK_IPC = {
   saveSource: 'scanpack:save-source',
   mapOrders: 'scanpack:map-orders',
   setDistributionCodes: 'scanpack:set-distribution-codes',
+  setSortKey: 'scanpack:set-sort-key',
   printPart: 'scanpack:print-part',
   waitForFirst: 'scanpack:wait-for-first',
   listJobs: 'scanpack:list-jobs',

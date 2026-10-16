@@ -6,6 +6,7 @@ import { app } from 'electron'
 import { ParseSpeeds, PDFDocument } from 'pdf-lib'
 import type {
   CreatePacklogInput,
+  PacklogSortKey,
   PageRef,
   PartName,
   StoredPacklog,
@@ -183,7 +184,8 @@ export const createPacklog = (input: CreatePacklogInput) => {
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
     weekStart: week.weekStart,
-    weekEnd: week.weekEnd
+    weekEnd: week.weekEnd,
+    ...(input.sortKey ? { sortKey: input.sortKey, labelSorting: true } : {})
   }
   const orders: StoredPacklogOrder[] = rows.map(o => ({
     _id: newId(),
@@ -217,12 +219,14 @@ export const createPacklog = (input: CreatePacklogInput) => {
 // Read
 // ---------------------------------------------------------------------------
 
-export const listPacklogs = (opts: { page?: number; limit?: number; platform?: string }) => {
+export const listPacklogs = (opts: { page?: number; limit?: number; platform?: string; sorted?: boolean }) => {
   const page = Math.max(1, Math.floor(Number(opts.page)) || 1)
   const limit = Math.min(100, Math.max(1, Math.floor(Number(opts.limit)) || 20))
   const items = [...load().values()]
     .map(entry => entry.packlog)
     .filter(p => !opts.platform || p.platform === opts.platform)
+    // Label Sorting lists only the packlogs it created.
+    .filter(p => !opts.sorted || (p.labelSorting ?? Boolean(p.sortKey)))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   return { items: items.slice((page - 1) * limit, page * limit), total: items.length, page, limit }
 }
@@ -379,6 +383,18 @@ export const mapOrders = (
   writeEntry(entry)
   dirty.delete(id)
   return { mapped, mappedCount: entry.packlog.mappedCount }
+}
+
+/** Change the order a packlog's labels are shown, packed and downloaded in. Null: sheet order. */
+export const setSortKey = (id: string, sortKey: PacklogSortKey | null) => {
+  const entry = get(id)
+  // A packlog from Label Sorting stays listed there even when set back to sheet order.
+  if (entry.packlog.sortKey && entry.packlog.labelSorting === undefined) entry.packlog.labelSorting = true
+  entry.packlog.sortKey = sortKey
+  entry.packlog.updatedAt = new Date().toISOString()
+  writeEntry(entry)
+  dirty.delete(id)
+  return { sortKey }
 }
 
 /** Store the distribution code read off each order's label (Flipkart). */

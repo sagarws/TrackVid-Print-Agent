@@ -7,6 +7,8 @@
  * types are the single source of truth for the stored shape.
  */
 
+import type { PacklogSortKey } from "@shared/types/scanpack";
+
 /** Row-order preserving map of sheet header -> cell value (always a string). */
 export type SheetRow = Record<string, string>;
 
@@ -90,6 +92,8 @@ export interface ScanPackBatch {
    * (old batches created before this field was added).
    */
   scanMode?: ScanMode;
+  /** Label Sorting: the sort the packlog was created with; null otherwise. */
+  sortKey?: PacklogSortKey | null;
 }
 
 /** Result of scanning one uploaded label/invoice PDF. */
